@@ -1,1 +1,1 @@
-python make_sudoku_pdf.py  --time 7200 --target 45 --margin-cm 2 --gap-cm 2
+python make_sudoku_pdf.py  --time 7200 --target 45 --margin-cm 2 --gap-cm 2 --out SudokuExport
