@@ -1,47 +1,68 @@
 #!/usr/bin/env python3
-"""
-make_sudoku_pdf.py
-Create a landscape A4 PDF with 8 Sudoku puzzles (2 pages, 2x2 per page),
-with configurable margins and spacing.
-Uses sudoku_generator.py (which uses sudoku_solver.py) located in the same directory by default.
+"""Generate a landscape PDF with Sudoku puzzles using project configuration."""
 
-Usage (from the same folder):
-  python make_sudoku_pdf.py
-
-Or with custom parameters:
-  python make_sudoku_pdf.py --out my_puzzles.pdf --seed 12345 --target 35 --time 20
-"""
+from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import importlib.util
+import math
+import random
 import sys
 import time
-import datetime
 from pathlib import Path
+from typing import Optional
 
-# --- CLI ---
-parser = argparse.ArgumentParser(description="Generate an 8-pack Sudoku PDF (2 pages, landscape A4).")
-parser.add_argument("--out", default=None, help="Output PDF path. If not set, a name with a timestamp is generated automatically.")
-parser.add_argument("--seed", type=int, default=None, help="Base seed for reproducibility. If not set, a random seed is used.")
-parser.add_argument("--target", type=float, default=30.0, help="Target interest score per puzzle (default: 30.0)")
-parser.add_argument("--time", type=float, default=40.0, help="Time budget per puzzle, seconds (default: 40.0)")
-parser.add_argument("--margin-cm", type=float, default=4.0, help="Margin around page in cm (default: 4.0)")
-parser.add_argument("--gap-cm", type=float, default=2.0, help="Gap between puzzles in cm (default: 2.0)")
-args = parser.parse_args()
+from project_config import get_config
 
-# --- Handle automatic seed and output path ---
-base_seed = args.seed if args.seed is not None else int(time.time())
 
-if args.out:
-    out_path = Path(args.out)
+CONFIG = get_config()
+PDF_CONFIG = CONFIG.get("pdf", {})
+LAYOUT_CONFIG = PDF_CONFIG.get("layout", {})
+PAGE_CONFIG = PDF_CONFIG.get("page", {})
+RENDER_CONFIG = PDF_CONFIG.get("rendering", {})
+OUTPUT_CONFIG = PDF_CONFIG.get("output", {})
+FALLBACK_CONFIG = PDF_CONFIG.get("fallback", {})
+
+LAYOUT_ROWS = int(LAYOUT_CONFIG.get("rows", 2))
+LAYOUT_COLS = int(LAYOUT_CONFIG.get("cols", 2))
+PUZZLES_PER_PAGE = max(1, LAYOUT_ROWS * LAYOUT_COLS)
+
+_configured_total = PDF_CONFIG.get("total_puzzles")
+_configured_pages = PDF_CONFIG.get("pages")
+if _configured_total is None and _configured_pages is None:
+    DEFAULT_TOTAL_PUZZLES = PUZZLES_PER_PAGE * 2
+    DEFAULT_PAGES = 2
+elif _configured_total is None:
+    DEFAULT_PAGES = max(1, int(_configured_pages))
+    DEFAULT_TOTAL_PUZZLES = DEFAULT_PAGES * PUZZLES_PER_PAGE
+elif _configured_pages is None:
+    DEFAULT_TOTAL_PUZZLES = max(1, int(_configured_total))
+    DEFAULT_PAGES = max(1, math.ceil(DEFAULT_TOTAL_PUZZLES / PUZZLES_PER_PAGE))
 else:
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_path = Path(f"sudoku_9x9_pack_{timestamp}.pdf")
+    DEFAULT_TOTAL_PUZZLES = max(1, int(_configured_total))
+    DEFAULT_PAGES = max(1, int(_configured_pages))
+    if DEFAULT_TOTAL_PUZZLES > DEFAULT_PAGES * PUZZLES_PER_PAGE:
+        DEFAULT_PAGES = math.ceil(DEFAULT_TOTAL_PUZZLES / PUZZLES_PER_PAGE)
 
-here = Path(__file__).resolve().parent
+DEFAULT_TARGET_SCORE = float(PDF_CONFIG.get("default_target_score", 30.0))
+DEFAULT_TIME_BUDGET = float(PDF_CONFIG.get("default_time_budget", 40.0))
+DEFAULT_MARGIN_CM = float(PAGE_CONFIG.get("margin_cm", 4.0))
+DEFAULT_GAP_CM = float(PAGE_CONFIG.get("gap_cm", 2.0))
+PAGE_WIDTH_CM = float(PAGE_CONFIG.get("width_cm", 29.7))
+PAGE_HEIGHT_CM = float(PAGE_CONFIG.get("height_cm", 21.0))
+FOOTER_OFFSET_CM = float(PAGE_CONFIG.get("footer_offset_cm", 1.0))
+FONT_SCALE = float(RENDER_CONFIG.get("font_scale_factor", 0.65))
+OUTPUT_PREFIX = str(OUTPUT_CONFIG.get("filename_prefix", "sudoku_9x9_pack"))
+FALLBACK_SEED_MULTIPLIER = int(FALLBACK_CONFIG.get("seed_multiplier", 7))
+FALLBACK_REDUCE_SHARE = float(FALLBACK_CONFIG.get("reduce_time_share", 0.5))
+FALLBACK_MIN_TIME = float(FALLBACK_CONFIG.get("min_time_budget", 2.0))
 
-# --- Import generator ---
-def import_module_from(path: Path, name: str):
+SCRIPT_DIR = Path(__file__).resolve().parent
+INCH_PER_CM = 0.3937007874
+
+
+def _import_module_from(path: Path, name: str):
     spec = importlib.util.spec_from_file_location(name, str(path))
     if spec is None or spec.loader is None:
         raise ImportError(f"Could not load spec for module '{name}' from path '{path}'")
@@ -50,92 +71,178 @@ def import_module_from(path: Path, name: str):
     spec.loader.exec_module(mod)
     return mod
 
-gen_path = here / "sudoku_generator.py"
-sol_path = here / "sudoku_solver.py"
-if not gen_path.exists() or not sol_path.exists():
-    raise SystemExit("Expected sudoku_generator.py and sudoku_solver.py in the same folder.")
 
-genmod = import_module_from(gen_path, "sudoku_generator")
+def _resolve_output_path(out: Optional[str]) -> Path:
+    if out:
+        return Path(out)
+    timestamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    return Path(f"{OUTPUT_PREFIX}_{timestamp}.pdf")
 
-# --- Make 8 puzzles ---
-print(f"Generating 8 puzzles with base seed: {base_seed}")
-puzzles, solutions, scores, reports = [], [], [], []
 
-# Generate 8 puzzles for two pages
-for i in range(8):
-    print(f"Generating puzzle {i+1}/8...")
-    res = genmod.generate_interesting(seed=base_seed+i, target_score=args.target, time_budget=args.time)
-    if res is None:
-        # fallback strategy
-        print(f"  -> Fallback for puzzle {i+1}")
-        sol = genmod.generate_full_solution(seed=base_seed*7+i)
-        pzl, stp, sc, rep = genmod.reduce_with_checks(sol, target_score=0.0, rng=__import__('random').Random(base_seed+i), time_budget=max(2.0, args.time/2))
-        puzzles.append(pzl); solutions.append(sol); scores.append(sc); reports.append(rep)
-        continue
-    pzl, sol, sc, rep, stp = res
-    puzzles.append(pzl); solutions.append(sol); scores.append(sc); reports.append(rep)
-    print(f"  -> Done. Score: {sc:.1f}")
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Generate a Sudoku PDF pack using project configuration.",
+    )
+    parser.add_argument(
+        "--out",
+        default=None,
+        help="Output PDF path. If not set, a timestamped name is generated automatically.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Base seed for reproducibility. If not set, the current timestamp is used.",
+    )
+    parser.add_argument(
+        "--target",
+        type=float,
+        default=DEFAULT_TARGET_SCORE,
+        help="Target interest score per puzzle (default from config).",
+    )
+    parser.add_argument(
+        "--time",
+        type=float,
+        default=DEFAULT_TIME_BUDGET,
+        help="Time budget per puzzle in seconds (default from config).",
+    )
+    parser.add_argument(
+        "--margin-cm",
+        type=float,
+        default=DEFAULT_MARGIN_CM,
+        help="Margin around the page in centimetres (default from config).",
+    )
+    parser.add_argument(
+        "--gap-cm",
+        type=float,
+        default=DEFAULT_GAP_CM,
+        help="Gap between puzzles in centimetres (default from config).",
+    )
+    return parser
 
-# --- PDF rendering ---
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
 
-inch_per_cm = 0.3937007874
-page_w_in = 29.7 * inch_per_cm  # A4 landscape width
-page_h_in = 21.0 * inch_per_cm  # A4 landscape height
-margin_in = args.margin_cm * inch_per_cm
-gap_in = args.gap_cm * inch_per_cm
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
 
-avail_w = page_w_in - 2*margin_in - gap_in
-avail_h = page_h_in - 2*margin_in - gap_in
-grid_size = min(avail_w/2.0, avail_h/2.0)
+    base_seed = args.seed if args.seed is not None else int(time.time())
+    out_path = _resolve_output_path(args.out)
 
-def draw_grid(ax, puzzle, left_in, bottom_in, size_in):
-    ax.set_position([left_in/page_w_in, bottom_in/page_h_in, size_in/page_w_in, size_in/page_h_in])
-    ax.tick_params(axis='both', which='both', bottom=False, top=False, left=False, right=False, labelbottom=False, labelleft=False)
-    for i in range(10):
-        lw = 1.5 if i % 3 else 3.0
-        ax.axvline(i/9, color='k', linewidth=lw)
-        ax.axhline(i/9, color='k', linewidth=lw)
-    ax.set_xlim(0,1); ax.set_ylim(0,1); ax.axis('off')
-    fs = int(0.65 * size_in * 72 / 9)  # font size scaled to grid
-    for r in range(9):
-        for c in range(9):
-            v = puzzle[r][c]
-            if v:
-                x = (c + 0.5)/9
-                y = 1 - (r + 0.5)/9
-                ax.text(x, y, str(v), ha='center', va='center', fontsize=fs)
+    gen_path = SCRIPT_DIR / "sudoku_generator.py"
+    sol_path = SCRIPT_DIR / "sudoku_solver.py"
+    if not gen_path.exists() or not sol_path.exists():
+        raise SystemExit("Expected sudoku_generator.py and sudoku_solver.py in the same folder.")
 
-lefts = [margin_in, margin_in + grid_size + gap_in]
-bottoms = [margin_in + grid_size + gap_in, margin_in]
+    generator = _import_module_from(gen_path, "sudoku_generator")
 
-# Y position for footer text, 1cm from bottom edge
-footer_y_pos_norm = (1.0 * inch_per_cm) / page_h_in
+    total_puzzles = max(1, DEFAULT_TOTAL_PUZZLES)
+    puzzles_per_page = PUZZLES_PER_PAGE
+    pages = max(1, math.ceil(total_puzzles / puzzles_per_page))
 
-with PdfPages(out_path) as pdf:
-    # Loop to create two pages
-    for page_num in range(2):
-        fig = plt.figure(figsize=(page_w_in, page_h_in))
-        
-        # Get puzzles and scores for the current page
-        start_idx = page_num * 4
-        page_puzzles = puzzles[start_idx : start_idx + 4]
-        page_scores = scores[start_idx : start_idx + 4]
+    print(f"Generating {total_puzzles} puzzles with base seed: {base_seed}")
+    puzzles, solutions, scores, reports = [], [], [], []
 
-        axes = [fig.add_axes([0,0,1,1], frameon=False) for _ in range(4)]
-        
-        idx_on_page = 0
-        for row in range(2):
-            for col in range(2):
-                draw_grid(axes[idx_on_page], page_puzzles[idx_on_page], lefts[col], bottoms[row], grid_size)
-                idx_on_page += 1
-        
-        # Add footer with score and proper spacing
-        footer_text = f"Сложность (Interest Score): {', '.join(f'{s:.1f}' for s in page_scores)}    Time budget = {args.time}      Target Score = {args.target}"
-        fig.text(0.5, footer_y_pos_norm, footer_text, ha='center', va='bottom', fontsize=8)
-        
-        pdf.savefig(fig)
-        plt.close(fig)
+    for i in range(total_puzzles):
+        print(f"Generating puzzle {i + 1}/{total_puzzles}...")
+        res = generator.generate_interesting(
+            seed=base_seed + i,
+            target_score=args.target,
+            time_budget=args.time,
+        )
+        if res is None:
+            print(f"  -> Fallback for puzzle {i + 1}")
+            sol = generator.generate_full_solution(seed=base_seed * FALLBACK_SEED_MULTIPLIER + i)
+            rng = random.Random(base_seed + i)
+            fallback_budget = max(FALLBACK_MIN_TIME, args.time * FALLBACK_REDUCE_SHARE)
+            pzl, stp, sc, rep = generator.reduce_with_checks(
+                sol,
+                target_score=0.0,
+                rng=rng,
+                time_budget=fallback_budget,
+            )
+            puzzles.append(pzl)
+            solutions.append(sol)
+            scores.append(sc)
+            reports.append(rep)
+            continue
 
-print(f"\nPDF with 2 pages and 8 puzzles saved to: {out_path.resolve()}")
+        pzl, sol, sc, rep, stp = res
+        puzzles.append(pzl)
+        solutions.append(sol)
+        scores.append(sc)
+        reports.append(rep)
+        print(f"  -> Done. Score: {sc:.1f}")
+
+    from matplotlib.backends.backend_pdf import PdfPages
+    import matplotlib.pyplot as plt
+
+    page_w_in = PAGE_WIDTH_CM * INCH_PER_CM
+    page_h_in = PAGE_HEIGHT_CM * INCH_PER_CM
+    margin_in = args.margin_cm * INCH_PER_CM
+    gap_in = args.gap_cm * INCH_PER_CM
+
+    avail_w = page_w_in - 2 * margin_in - gap_in * (LAYOUT_COLS - 1)
+    avail_h = page_h_in - 2 * margin_in - gap_in * (LAYOUT_ROWS - 1)
+    grid_size = min(avail_w / max(1, LAYOUT_COLS), avail_h / max(1, LAYOUT_ROWS))
+
+    def draw_grid(ax, puzzle, left_in, bottom_in, size_in):
+        ax.set_position([left_in / page_w_in, bottom_in / page_h_in, size_in / page_w_in, size_in / page_h_in])
+        ax.tick_params(axis="both", which="both", bottom=False, top=False, left=False, right=False,
+                       labelbottom=False, labelleft=False)
+        for idx in range(10):
+            linewidth = 1.5 if idx % 3 else 3.0
+            ax.axvline(idx / 9, color="k", linewidth=linewidth)
+            ax.axhline(idx / 9, color="k", linewidth=linewidth)
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.axis("off")
+        font_size = max(1, int(FONT_SCALE * size_in * 72 / 9))
+        for r in range(9):
+            for c in range(9):
+                value = puzzle[r][c]
+                if value:
+                    x = (c + 0.5) / 9
+                    y = 1 - (r + 0.5) / 9
+                    ax.text(x, y, str(value), ha="center", va="center", fontsize=font_size)
+
+    footer_y_pos_norm = (FOOTER_OFFSET_CM * INCH_PER_CM) / page_h_in
+
+    with PdfPages(out_path) as pdf:
+        for page_num in range(pages):
+            fig = plt.figure(figsize=(page_w_in, page_h_in))
+            start_idx = page_num * puzzles_per_page
+            page_puzzles = puzzles[start_idx:start_idx + puzzles_per_page]
+            page_scores = scores[start_idx:start_idx + puzzles_per_page]
+
+            idx_on_page = 0
+            for row in range(LAYOUT_ROWS):
+                bottom = margin_in + (LAYOUT_ROWS - 1 - row) * (grid_size + gap_in)
+                for col in range(LAYOUT_COLS):
+                    if idx_on_page >= len(page_puzzles):
+                        break
+                    left = margin_in + col * (grid_size + gap_in)
+                    ax = fig.add_axes([0, 0, 1, 1], frameon=False)
+                    draw_grid(ax, page_puzzles[idx_on_page], left, bottom, grid_size)
+                    idx_on_page += 1
+                if idx_on_page >= len(page_puzzles):
+                    break
+
+            if page_scores:
+                score_text = ", ".join(f"{s:.1f}" for s in page_scores)
+            else:
+                score_text = "—"
+            footer_text = (
+                f"Сложность (Interest Score): {score_text}    "
+                f"Time budget = {args.time}   Target Score = {args.target}"
+            )
+            fig.text(0.5, footer_y_pos_norm, footer_text, ha="center", va="bottom", fontsize=8)
+
+            pdf.savefig(fig)
+            plt.close(fig)
+
+    print(f"\nPDF with {pages} pages and {len(puzzles)} puzzles saved to: {out_path.resolve()}")
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover - CLI entry point
+    raise SystemExit(main())

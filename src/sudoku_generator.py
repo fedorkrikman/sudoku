@@ -2,12 +2,18 @@
 # Generate full solutions, reduce to puzzles with uniqueness and logical solvability,
 # and score "interest" using sudoku_solver.LogicSolver steps.
 
-from typing import List, Tuple, Optional, Dict
-import random, time, json
-import importlib.util, sys
+from typing import Dict, List, Optional, Tuple
+
+import importlib.util
+import json
+import random
+import sys
+import time
 
 # Import solver module from sibling path (adjust if needed)
 from pathlib import Path
+
+from project_config import get_config
 here = Path(__file__).resolve().parent
 sol_path = here / "sudoku_solver.py"
 spec = importlib.util.spec_from_file_location("sudoku_solver", str(sol_path))
@@ -18,6 +24,87 @@ spec.loader.exec_module(sudoku_solver)
 Grid = sudoku_solver.Grid
 LogicSolver = sudoku_solver.LogicSolver
 
+CONFIG = get_config()
+GENERATOR_CONFIG = CONFIG.get("generator", {})
+SCORING_CONFIG = CONFIG.get("interest_scoring", {})
+
+FULL_SOLUTION_CONFIG = GENERATOR_CONFIG.get("full_solution", {})
+DEFAULT_FULL_SOLUTION_TIME_LIMIT = float(FULL_SOLUTION_CONFIG.get("time_limit", 1.5))
+
+REDUCE_CONFIG = GENERATOR_CONFIG.get("reduce", {})
+DEFAULT_REDUCE_TIME_BUDGET = float(REDUCE_CONFIG.get("time_budget", 10.0))
+REDUCE_MIN_CLUES = int(REDUCE_CONFIG.get("min_clues", 28))
+REDUCE_LOW_SCORE_THRESHOLD = float(REDUCE_CONFIG.get("low_score_threshold", 10.0))
+
+MINIMALITY_CONFIG = GENERATOR_CONFIG.get("minimality", {})
+DEFAULT_MINIMALITY_TIME_BUDGET = float(MINIMALITY_CONFIG.get("time_budget", 6.0))
+DEFAULT_MINIMALITY_SYMMETRY = str(MINIMALITY_CONFIG.get("symmetry", "central"))
+
+INTERESTING_CONFIG = GENERATOR_CONFIG.get("interesting", {})
+DEFAULT_INTEREST_TARGET = float(INTERESTING_CONFIG.get("target_score", 40.0))
+DEFAULT_INTEREST_TIME = float(INTERESTING_CONFIG.get("time_budget", 20.0))
+DEFAULT_SINGLE_ATTEMPT_BUDGET = float(INTERESTING_CONFIG.get("single_attempt_budget", 15.0))
+_reduce_share = float(INTERESTING_CONFIG.get("reduce_share", 0.7))
+_minimize_share = float(INTERESTING_CONFIG.get("minimize_share", 0.3))
+_share_sum = _reduce_share + _minimize_share
+if _share_sum <= 0:
+    REDUCE_FRACTION = 0.7
+    MINIMIZE_FRACTION = 0.3
+else:
+    REDUCE_FRACTION = _reduce_share / _share_sum
+    MINIMIZE_FRACTION = _minimize_share / _share_sum
+
+DEFAULT_TECH_WEIGHTS = {
+    "Naked Single": 0.7,
+    "Hidden Single": 1.0,
+    "Locked Candidates (Pointing)": 1.6,
+    "Locked Candidates (Claiming)": 1.7,
+    "Naked Pairs": 1.9,
+    "Hidden Pairs": 2.1,
+    "X-Wing (Rows)": 3.2,
+    "X-Wing (Cols)": 3.2,
+    "XY-Wing": 3.6,
+    "Swordfish (Rows)": 4.0,
+    "Swordfish (Cols)": 4.0,
+}
+TECH_WEIGHTS = DEFAULT_TECH_WEIGHTS.copy()
+TECH_WEIGHTS.update(SCORING_CONFIG.get("weights", {}))
+
+ADVANCED_DEFAULT = {
+    "Naked Pairs",
+    "Hidden Pairs",
+    "Locked Candidates (Pointing)",
+    "Locked Candidates (Claiming)",
+    "X-Wing (Rows)",
+    "X-Wing (Cols)",
+    "XY-Wing",
+    "Swordfish (Rows)",
+    "Swordfish (Cols)",
+}
+advanced_section = SCORING_CONFIG.get("advanced", {})
+if isinstance(advanced_section, dict):
+    advanced_list = advanced_section.get("techniques", [])
+elif isinstance(advanced_section, list):
+    advanced_list = advanced_section
+else:
+    advanced_list = []
+if not advanced_list:
+    advanced_list = list(ADVANCED_DEFAULT)
+ADVANCED = set(advanced_list)
+
+DIVERSITY_CAP = float(SCORING_CONFIG.get("diversity_cap", 42.0))
+DIVERSITY_STEP = float(SCORING_CONFIG.get("diversity_step", 6.0))
+RICHNESS_CAP = float(SCORING_CONFIG.get("richness_cap", 36.0))
+RICHNESS_FACTOR = float(SCORING_CONFIG.get("richness_factor", 0.55))
+CURVE_BONUS_SCALE = float(SCORING_CONFIG.get("curve_bonus_scale", 12.0))
+XWING_BONUS = float(SCORING_CONFIG.get("xwing_bonus", 4.0))
+XYWING_BONUS = float(SCORING_CONFIG.get("xywing_bonus", 6.0))
+SWORDFISH_BONUS = float(SCORING_CONFIG.get("swordfish_bonus", 8.0))
+MONOTONY_FREE_RUN = int(SCORING_CONFIG.get("monotony_free_run", 5))
+MONOTONY_PENALTY = float(SCORING_CONFIG.get("monotony_penalty", 1.8))
+SINGLES_SHARE_LIMIT = float(SCORING_CONFIG.get("singles_share_limit", 0.65))
+SINGLES_PENALTY_SCALE = float(SCORING_CONFIG.get("singles_penalty_scale", 30.0))
+SINGLES_SCORE_CAP = float(SCORING_CONFIG.get("singles_score_cap", 28.0))
 # ---------- Utils ----------
 
 def grid_copy(g: List[List[int]]) -> List[List[int]]:
@@ -57,7 +144,7 @@ def print_grid(g: List[List[int]]) -> str:
 # ---------- Full solution generator ----------
 
 
-def generate_full_solution(seed=None, time_limit=1.5):
+def generate_full_solution(seed=None, time_limit=DEFAULT_FULL_SOLUTION_TIME_LIMIT):
     rng = random.Random(seed)
     start = time.monotonic()
 
@@ -246,27 +333,6 @@ def has_unique_solution(puzzle: List[List[int]], limit: int = 2) -> bool:
 
 # ---------- Interest scorer (updated) ----------
 
-TECH_WEIGHTS = {
-    "Naked Single": 0.7,
-    "Hidden Single": 1.0,
-    "Locked Candidates (Pointing)": 1.6,
-    "Locked Candidates (Claiming)": 1.7,
-    "Naked Pairs": 1.9,
-    "Hidden Pairs": 2.1,
-    "X-Wing (Rows)": 3.2,
-    "X-Wing (Cols)": 3.2,
-    "XY-Wing": 3.6,
-    "Swordfish (Rows)": 4.0,
-    "Swordfish (Cols)": 4.0,
-}
-
-ADVANCED = {
-    "Naked Pairs", "Hidden Pairs",
-    "Locked Candidates (Pointing)", "Locked Candidates (Claiming)",
-    "X-Wing (Rows)", "X-Wing (Cols)", "XY-Wing",
-    "Swordfish (Rows)", "Swordfish (Cols)",
-}
-
 def score_interest(steps):
     if not steps:
         return 0.0, {"reason": "no steps"}
@@ -275,11 +341,11 @@ def score_interest(steps):
     uniq = sorted(set(techs))
 
     # 1) Разнообразие техник (скромно)
-    diversity = min(42.0, len(uniq) * 6.0)
+    diversity = min(DIVERSITY_CAP, len(uniq) * DIVERSITY_STEP)
 
     # 2) Насыщенность приёмами (весами)
     wsum = sum(TECH_WEIGHTS.get(t, 1.0) for t in techs)
-    richness = min(36.0, wsum * 0.55)
+    richness = min(RICHNESS_CAP, wsum * RICHNESS_FACTOR)
 
     # 3) Кривая: больше продвинутых именно в середине (фаза B)
     phaseA = [t for t in steps if (t.phase or "B") == "A"]
@@ -288,13 +354,17 @@ def score_interest(steps):
     def adv_share(lst): 
         return (sum(1 for s in lst if s.technique in ADVANCED) / max(1, len(lst)))
     advA, advB, advC = adv_share(phaseA), adv_share(phaseB), adv_share(phaseC)
-    curve_bonus = max(0.0, (advB - max(advA, advC))) * 12.0
+    curve_bonus = max(0.0, (advB - max(advA, advC))) * CURVE_BONUS_SCALE
 
     # 4) Бонус за присутствие «тяжёлых» приёмов
     has_xwing = any(t in {"X-Wing (Rows)", "X-Wing (Cols)"} for t in techs)
     has_xywing = "XY-Wing" in techs
     has_sword = any(t.startswith("Swordfish") for t in techs)
-    advanced_presence = (4.0 if has_xwing else 0.0) + (6.0 if has_xywing else 0.0) + (8.0 if has_sword else 0.0)
+    advanced_presence = (
+        (XWING_BONUS if has_xwing else 0.0)
+        + (XYWING_BONUS if has_xywing else 0.0)
+        + (SWORDFISH_BONUS if has_sword else 0.0)
+    )
 
     # 5) Штрафы за монотонность
     longest_run, cur = 1, 1
@@ -304,18 +374,18 @@ def score_interest(steps):
             longest_run = max(longest_run, cur)
         else:
             cur = 1
-    monotony_penalty = max(0.0, (longest_run - 5) * 1.8)
+    monotony_penalty = max(0.0, (longest_run - MONOTONY_FREE_RUN) * MONOTONY_PENALTY)
 
     singles_cnt = sum(1 for t in techs if t in {"Naked Single", "Hidden Single"})
     singles_share = singles_cnt / len(techs)
-    singles_penalty = max(0.0, (singles_share - 0.65) * 30.0)  # до ~10–12 очков
+    singles_penalty = max(0.0, (singles_share - SINGLES_SHARE_LIMIT) * SINGLES_PENALTY_SCALE)
 
     # Итог
     score = diversity + richness + curve_bonus + advanced_presence - monotony_penalty - singles_penalty
 
     # Если совсем одни синглы — мягкий «потолок», но не 20, как раньше
     if set(uniq) <= {"Naked Single", "Hidden Single"}:
-        score = min(score, 28.0)
+        score = min(score, SINGLES_SCORE_CAP)
 
     report = {
         "diversity": diversity,
@@ -341,7 +411,12 @@ def symmetric_pairs() -> List[Tuple[Tuple[int,int], Tuple[int,int]]]:
                 pairs.append(((r, c), (r2, c2)))
     return pairs
 
-def reduce_with_checks(solution: List[List[int]], target_score: float, rng: random.Random, time_budget: float = 10.0):
+def reduce_with_checks(
+    solution: List[List[int]],
+    target_score: float,
+    rng: random.Random,
+    time_budget: float = DEFAULT_REDUCE_TIME_BUDGET,
+):
     puzzle = grid_copy(solution)
     pairs = symmetric_pairs()
     rng.shuffle(pairs)
@@ -376,7 +451,7 @@ def reduce_with_checks(solution: List[List[int]], target_score: float, rng: rand
             best_snapshot = (grid_copy(puzzle), steps, score, report)
 
         clues = sum(1 for r in range(9) for c in range(9) if puzzle[r][c] != 0)
-        if clues <= 28 and score < 10.0:
+        if clues <= REDUCE_MIN_CLUES and score < REDUCE_LOW_SCORE_THRESHOLD:
             # только на поздней стадии считаем низкий скор признаком скуки
             puzzle[r1][c1], puzzle[r2][c2] = saved1, saved2
 
@@ -385,7 +460,12 @@ def reduce_with_checks(solution: List[List[int]], target_score: float, rng: rand
 
 # ---------- Minimality sweep ----------
 
-def enforce_minimality(puzzle, rng, symmetry: str = "central", time_budget: float = 6.0):
+def enforce_minimality(
+    puzzle,
+    rng,
+    symmetry: str = DEFAULT_MINIMALITY_SYMMETRY,
+    time_budget: float = DEFAULT_MINIMALITY_TIME_BUDGET,
+):
     """
     Удаляем лишние данные до состояния минимальности.
     symmetry: "central" — удаляем парами по центральной симметрии; "none" — по одной.
@@ -435,7 +515,11 @@ def enforce_minimality(puzzle, rng, symmetry: str = "central", time_budget: floa
 
 # ---------- Top-level generation (MODIFIED) ----------
 
-def generate_interesting(seed: Optional[int] = None, target_score: float = 40.0, time_budget: float = 20.0):
+def generate_interesting(
+    seed: Optional[int] = None,
+    target_score: float = DEFAULT_INTEREST_TARGET,
+    time_budget: float = DEFAULT_INTEREST_TIME,
+):
     """
     Generates a puzzle by attempting to find one that meets the target_score within the total time_budget.
     Each attempt gets a fixed internal time budget to ensure quality.
@@ -446,11 +530,11 @@ def generate_interesting(seed: Optional[int] = None, target_score: float = 40.0,
     
     # Internal budget for a single generation attempt (reduce + minimize).
     # This ensures each attempt is thorough, regardless of the total time_budget.
-    single_attempt_budget = 15.0 
+    single_attempt_budget = DEFAULT_SINGLE_ATTEMPT_BUDGET
     
     # Allocate time for the main stages of a single attempt.
-    reduce_time = single_attempt_budget * 0.7  # 70% of time for the most critical step
-    minimize_time = single_attempt_budget * 0.3 # 30% for final cleanup
+    reduce_time = single_attempt_budget * REDUCE_FRACTION
+    minimize_time = single_attempt_budget * MINIMIZE_FRACTION
 
     # Main loop: keep trying until total time is up or target score is met.
     while time.time() - t0 < time_budget:
@@ -465,7 +549,7 @@ def generate_interesting(seed: Optional[int] = None, target_score: float = 40.0,
         
         # --- Stage 3: Make the puzzle minimal ---
         puzzle = enforce_minimality(
-            puzzle, rng, symmetry="central", time_budget=minimize_time
+            puzzle, rng, symmetry=DEFAULT_MINIMALITY_SYMMETRY, time_budget=minimize_time
         )
 
         # --- Stage 4: Re-analyze the final puzzle to get its definitive score ---
