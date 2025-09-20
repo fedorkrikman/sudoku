@@ -1,0 +1,34 @@
+{
+  // ������� ������� ������� � ������ ����������� �������� ��� ��������
+  "security.workspace.trust.enabled": true,
+  "security.workspace.trust.startupPrompt": "never",
+  "security.workspace.trust.untrustedFiles": "open",
+
+  // ��������� ������ ��������� ������� ��� �������������
+  // (������ ����� ���������� �� Settings UI ����� "Copy Setting as JSON")
+  "cursor.agent.autoRun.enabled": true,
+
+  // ����� ������ ���������� ������ ������
+  "cursor.agent.autoRun.commandAllowlist": [
+    "powershell.exe",
+    "python",
+    "py",
+    "git",
+    "pip"
+  ],
+
+  // ������ ������ �� ������ ��������/�������
+  "cursor.agent.autoRun.commandDenylist": [
+    "format",
+    "shutdown",
+    "bcdedit",
+    "del /s /q",
+    "rm -rf"
+  ],
+  "terminal.integrated.automationProfile.windows": {},
+  "terminal.integrated.hideOnLastClosed": false,
+  "terminal.integrated.commandsToSkipShell": [
+    "powershell.exe"
+  ]
+}
+

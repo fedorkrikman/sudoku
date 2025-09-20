@@ -69,7 +69,7 @@ for i in range(8):
         # fallback strategy
         print(f"  -> Fallback for puzzle {i+1}")
         sol = genmod.generate_full_solution(seed=base_seed*7+i)
-        pzl, stp, sc, rep = genmod.reduce_with_checks(sol, target_score=0.0, rng=__import__('random').Random(base_seed+i), time_budget=max(2.0, args.time/2))
+        pzl, _, sc, rep = genmod.reduce_with_checks(sol, target_score=0.0, rng=__import__('random').Random(base_seed+i), time_budget=max(2.0, args.time/2))
         puzzles.append(pzl); solutions.append(sol); scores.append(sc); reports.append(rep)
         continue
     pzl, sol, sc, rep, stp = res
@@ -132,7 +132,7 @@ with PdfPages(out_path) as pdf:
                 idx_on_page += 1
         
         # Add footer with score and proper spacing
-        footer_text = f"Сложность (Interest Score): {', '.join(f'{s:.1f}' for s in page_scores)}    Time budget = {args.time}      Target Score = {args.target}"
+        footer_text = f"Scores (Interest Score): {', '.join(f'{s:.1f}' for s in page_scores)}    Time budget = {args.time}      Target Score = {args.target}"
         fig.text(0.5, footer_y_pos_norm, footer_text, ha='center', va='bottom', fontsize=8)
         
         pdf.savefig(fig)
