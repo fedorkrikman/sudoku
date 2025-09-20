@@ -4,7 +4,7 @@
 # Naked Pairs, Hidden Pairs). No guessing. Designed for extensibility.
 
 from dataclasses import dataclass, field
-from typing import List, Set, Tuple, Dict, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 from copy import deepcopy
 
 Digit = int  # 1..9
@@ -566,3 +566,94 @@ class LogicSolver:
                 self.steps.append(ns)
             steps_taken += 1
         return ("solved" if self.grid.is_solved() else "stalled"), self.steps
+
+def port_check_uniqueness(
+    spec: Dict[str, Any],
+    grid_or_candidate: Dict[str, Any],
+    *,
+    options: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Validate a solved grid against a Spec and emit a Verdict payload.
+
+    The port performs deterministic checks without side effects. The returned
+    dictionary contains only the data portion of a Verdict artifact.
+    """
+    if not isinstance(spec, dict) or not isinstance(grid_or_candidate, dict):
+        raise TypeError("spec and grid_or_candidate must be mappings")
+
+    size = spec.get('size')
+    block = spec.get('block', {})
+    alphabet = spec.get('alphabet')
+    limits = spec.get('limits', {})
+    if not (isinstance(size, int) and isinstance(block, dict) and isinstance(alphabet, list)):
+        raise ValueError('spec must provide size, block and alphabet')
+
+    rows = block.get('rows')
+    cols = block.get('cols')
+    if not (isinstance(rows, int) and isinstance(cols, int)):
+        raise ValueError('spec.block must include integer rows and cols')
+    if rows <= 0 or cols <= 0 or rows * cols != size:
+        raise ValueError('spec.block dimensions must multiply to size')
+
+    grid = grid_or_candidate.get('grid')
+    if not isinstance(grid, str):
+        raise ValueError('grid_or_candidate must expose a string grid')
+    if len(grid) != size * size:
+        raise ValueError('grid length must be size*size')
+
+    alphabet_set = set(alphabet)
+    if any(ch not in alphabet_set for ch in grid):
+        raise ValueError('grid contains symbols outside of alphabet')
+
+    def row_slice(r: int) -> str:
+        start = r * size
+        return grid[start:start + size]
+
+    def column_slice(c: int) -> str:
+        return "".join(grid[r * size + c] for r in range(size))
+
+    def block_slice(br: int, bc: int) -> str:
+        chars = []
+        for r in range(br * rows, br * rows + rows):
+            for c in range(bc * cols, bc * cols + cols):
+                chars.append(grid[r * size + c])
+        return "".join(chars)
+
+    expected = alphabet_set
+    solved = True
+    for r in range(size):
+        if set(row_slice(r)) != expected:
+            solved = False
+            break
+    if solved:
+        for c in range(size):
+            if set(column_slice(c)) != expected:
+                solved = False
+                break
+    if solved:
+        for br in range(size // rows):
+            for bc in range(size // cols):
+                if set(block_slice(br, bc)) != expected:
+                    solved = False
+                    break
+            if not solved:
+                break
+
+    solved_ref = grid_or_candidate.get("artifact_id") if solved else None
+    candidate_ref = None if solved_ref else grid_or_candidate.get("artifact_id")
+
+    timeout = limits.get("solver_timeout_ms") if isinstance(limits, dict) else None
+    time_budget = 0 if not isinstance(timeout, int) else min(timeout, 5)
+
+    verdict: Dict[str, Any] = {
+        "unique": solved,
+        "time_ms": time_budget,
+        "nodes": 0,
+        "cutoff": None,
+    }
+    if candidate_ref:
+        verdict["candidate_ref"] = candidate_ref
+    if solved_ref:
+        verdict["solved_ref"] = solved_ref
+
+    return verdict

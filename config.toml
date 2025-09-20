@@ -1,3 +1,21 @@
+[PUZZLE]
+name = "sudoku-9x9"
+size = 9
+alphabet = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
+
+[PUZZLE.block]
+rows = 3
+cols = 3
+
+[LIMITS]
+solver_timeout_ms = 1000
+
+[RENDER]
+format = "pdf"
+template = "classic@1"
+page = "A4"
+dpi = 300
+
 [pdf]
 total_puzzles = 8
 pages = 2

@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:puzzle:schemas/exportbundle:1.0.0",
+  "title": "Sudoku Export Bundle v1",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "../../_common/envelope-1.0.0.json"
+    }
+  ],
+  "properties": {
+    "type": {
+      "const": "ExportBundle"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "schema_id": {
+      "const": "urn:puzzle:schemas/exportbundle:1.0.0"
+    },
+    "schema_path": {
+      "const": "schemas/exportbundle/1.0.0/exportbundle.schema.json"
+    },
+    "inputs": {
+      "type": "object",
+      "required": [
+        "complete_ref",
+        "verdict_ref"
+      ],
+      "properties": {
+        "complete_ref": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "verdict_ref": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "target": {
+      "type": "object",
+      "required": [
+        "format",
+        "template"
+      ],
+      "properties": {
+        "format": {
+          "type": "string",
+          "const": "pdf"
+        },
+        "template": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "render_meta": {
+      "type": "object",
+      "required": [
+        "page",
+        "dpi"
+      ],
+      "properties": {
+        "page": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dpi": {
+          "type": "integer",
+          "minimum": 72
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "inputs",
+    "target",
+    "render_meta"
+  ],
+  "additionalProperties": true
+}

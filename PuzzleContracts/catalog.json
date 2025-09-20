@@ -1,0 +1,22 @@
+{
+  "Spec": {
+    "version": "1.0.0",
+    "schema_id": "urn:puzzle:schemas/spec:1.0.0",
+    "schema_path": "schemas/spec/1.0.0/spec.schema.json"
+  },
+  "CompleteGrid": {
+    "version": "1.0.0",
+    "schema_id": "urn:puzzle:schemas/completegrid:1.0.0",
+    "schema_path": "schemas/completegrid/1.0.0/completegrid.schema.json"
+  },
+  "Verdict": {
+    "version": "1.0.0",
+    "schema_id": "urn:puzzle:schemas/verdict:1.0.0",
+    "schema_path": "schemas/verdict/1.0.0/verdict.schema.json"
+  },
+  "ExportBundle": {
+    "version": "1.0.0",
+    "schema_id": "urn:puzzle:schemas/exportbundle:1.0.0",
+    "schema_path": "schemas/exportbundle/1.0.0/exportbundle.schema.json"
+  }
+}
