@@ -1,0 +1,10 @@
+﻿[make_sudoku_pdf]
+# Use empty string to let the script generate a timestamped filename
+out = ""
+# Optional fixed seed; set to null to randomize each run
+seed = null
+# Default puzzle generation parameters
+target = 30.0
+time = 40.0
+margin_cm = 4.0
+gap_cm = 2.0

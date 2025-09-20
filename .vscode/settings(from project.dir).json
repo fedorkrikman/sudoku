@@ -1,21 +1,42 @@
 {
+  // ������� ������� ������� � ������ ����������� �������� ��� ��������
+  "security.workspace.trust.enabled": true,
+  "security.workspace.trust.startupPrompt": "never",
+  "security.workspace.trust.untrustedFiles": "open",
 
-  "terminal.integrated.automationProfile.windows": null,
+  // ��������� ������ ��������� ������� ��� �������������
+  // (������ ����� ���������� �� Settings UI ����� "Copy Setting as JSON")
+  "cursor.agent.autoRun.enabled": true,
+  "cursor.agent.autoRun.enable": true,
+
+
+  // ������ ������ �� ������ ��������/�������
+  "cursor.agent.autoRun.commandDenylist": [
+    "format",
+    "shutdown",
+    "bcdedit",
+    "del /s /q",
+    "rm -rf",
+    "/\\b(Remove-Item|rm)\\b/i",
+    "/\\bSet-ExecutionPolicy\\b/i"
+    ],
+  "terminal.integrated.automationProfile.windows": {null},
   "terminal.integrated.hideOnLastClosed": false,
   
-
+  "cursor.agent.autoRun.commandAllowlist": [
+    "/^(?:.*[\\\\/])?(?:powershell|pwsh)(?:\\.exe)?\\b.*$/i",
+    "/\\.ps1\\b/i",
+    "/^git\\b/i",
+    "/^python\\b/i"
+  ],
+  
   "chat.agentSessionsViewLocation": "view",
   "chat.tools.terminal.enableAutoApprove": true,
   "chat.tools.terminal.autoApprove": {
-    "/^(?:.*[\\\\/])?(?:powershell|pwsh)(?:\\.exe)?\\b[\\s\\S]*$/i": {
-      "approve": true,
-      "matchCommandLine": true
-    },
-    "/^(?:.*[\\\\/])?(?:powershell|pwsh)(?:\\.exe)?\\s+-Command\\s+git\\b[\\s\\S]*$/i": {
-      "approve": true,
-      "matchCommandLine": true
-    },
-    "/\\.ps1\\b/i": { "approve": true, "matchCommandLine": true },
+
+    "/^(?:powershell|pwsh)(?:\\.exe)?\\b/i": { "approve": true, "matchCommandLine": true },
+    "powershell": true,
+    "powershell.exe": true,
     "cd": true,
     "echo": true,
     "ls": true,
