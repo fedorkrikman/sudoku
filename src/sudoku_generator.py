@@ -647,5 +647,5 @@ def port_generate_complete(spec: Dict[str, Any], *, seed: str) -> Dict[str, Any]
     return {
         "encoding": {"kind": "row-major-string", "alphabet": "as-in-spec"},
         "grid": grid,
-        "canonical_hash": f"sha256:{digest}",
+        "canonical_hash": f"sha256-{digest}",
     }

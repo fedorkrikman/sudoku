@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import os
-import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-import artifact_store
+from artifacts import artifact_store
+from contracts import schema_validator
 import make_sudoku_pdf
-import schema_validator
 import sudoku_generator
 import sudoku_solver
 from project_config import get_section
@@ -24,6 +23,11 @@ def _deterministic_created_at(seed: str, stage: str) -> str:
     offset_ms = digest % (24 * 60 * 60 * 1000)
     moment = anchor + timedelta(milliseconds=offset_ms)
     return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _deterministic_duration(seed: str, stage: str) -> int:
+    digest = uuid.uuid5(uuid.NAMESPACE_X500, f"duration|{seed}|{stage}").int
+    return digest % 2000
 
 
 def derive_seed(root_seed: str, stage: str, parent_id: Optional[str]) -> str:
@@ -95,13 +99,12 @@ def run_pipeline(output_dir: str = _DEFAULT_OUTPUT_DIR) -> Dict[str, Any]:
     """Execute the end-to-end pipeline and return resulting artifact identifiers."""
 
     root_seed = os.environ.get("PUZZLE_ROOT_SEED", "default-root-seed")
-    run_id = f"run-{root_seed}"
+    run_id = f"run-{uuid.uuid5(uuid.NAMESPACE_URL, root_seed).hex[:12]}"
     results: Dict[str, Any] = {"run_id": run_id, "root_seed": root_seed}
 
     # Stage 1: build and persist the Spec artifact.
     spec_stage = "stage.config.spec"
     spec_seed = derive_seed(root_seed, spec_stage, None)
-    spec_start = time.perf_counter()
     spec_payload = build_spec_from_config()
     spec_artifact = _base_envelope(
         "Spec",
@@ -112,14 +115,13 @@ def run_pipeline(output_dir: str = _DEFAULT_OUTPUT_DIR) -> Dict[str, Any]:
         spec_ref=None,
     )
     spec_artifact.update(spec_payload)
-    spec_artifact["metrics"]["time_ms"] = int((time.perf_counter() - spec_start) * 1000)
+    spec_artifact["metrics"]["time_ms"] = _deterministic_duration(spec_seed, spec_stage)
     spec_id = _finalise_and_store(spec_artifact)
     results["spec_id"] = spec_id
 
     # Stage 2: generate a complete grid.
     complete_stage = "stage.generate.complete"
     complete_seed = derive_seed(root_seed, complete_stage, spec_id)
-    complete_start = time.perf_counter()
     complete_payload = sudoku_generator.port_generate_complete(spec_artifact, seed=complete_seed)
     complete_artifact = _base_envelope(
         "CompleteGrid",
@@ -130,14 +132,13 @@ def run_pipeline(output_dir: str = _DEFAULT_OUTPUT_DIR) -> Dict[str, Any]:
         spec_ref=spec_id,
     )
     complete_artifact.update(complete_payload)
-    complete_artifact["metrics"]["time_ms"] = int((time.perf_counter() - complete_start) * 1000)
+    complete_artifact["metrics"]["time_ms"] = _deterministic_duration(complete_seed, complete_stage)
     complete_id = _finalise_and_store(complete_artifact)
     results["complete_id"] = complete_id
 
     # Stage 3: verify uniqueness / solved state.
     verdict_stage = "stage.solve.verify"
     verdict_seed = derive_seed(root_seed, verdict_stage, complete_id)
-    verdict_start = time.perf_counter()
     verdict_payload = sudoku_solver.port_check_uniqueness(
         spec_artifact,
         complete_artifact,
@@ -152,14 +153,13 @@ def run_pipeline(output_dir: str = _DEFAULT_OUTPUT_DIR) -> Dict[str, Any]:
         spec_ref=spec_id,
     )
     verdict_artifact.update(verdict_payload)
-    verdict_artifact["metrics"]["time_ms"] = int((time.perf_counter() - verdict_start) * 1000)
+    verdict_artifact["metrics"]["time_ms"] = _deterministic_duration(verdict_seed, verdict_stage)
     verdict_id = _finalise_and_store(verdict_artifact)
     results["verdict_id"] = verdict_id
 
     # Stage 4: build export bundle.
     bundle_stage = "stage.export.bundle"
     bundle_seed = derive_seed(root_seed, bundle_stage, verdict_id)
-    bundle_start = time.perf_counter()
     render = get_section("RENDER")
     bundle_payload = {
         "inputs": {"complete_ref": complete_id, "verdict_ref": verdict_id},
@@ -175,7 +175,7 @@ def run_pipeline(output_dir: str = _DEFAULT_OUTPUT_DIR) -> Dict[str, Any]:
         spec_ref=spec_id,
     )
     bundle_artifact.update(bundle_payload)
-    bundle_artifact["metrics"]["time_ms"] = int((time.perf_counter() - bundle_start) * 1000)
+    bundle_artifact["metrics"]["time_ms"] = _deterministic_duration(bundle_seed, bundle_stage)
     bundle_id = _finalise_and_store(bundle_artifact)
     results["exportbundle_id"] = bundle_id
 

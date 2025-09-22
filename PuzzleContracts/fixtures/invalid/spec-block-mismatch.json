@@ -1,6 +1,6 @@
 {
   "alphabet": ["1", "2", "3", "4", "5", "6", "7", "8", "9"],
-  "artifact_id": "sha256:invalid",
+  "artifact_id": "sha256-invalid",
   "block": {"cols": 3, "rows": 2},
   "created_at": "2025-09-20T23:17:45.790Z",
   "errors": [],

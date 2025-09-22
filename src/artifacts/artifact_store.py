@@ -1,4 +1,4 @@
-"""Offline artifact storage utilities for the Sudoku pipeline."""
+"""Utilities for canonical storage of pipeline artifacts."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any, Dict
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 _ARTIFACT_ROOT = _REPO_ROOT / "artifacts"
 
 
@@ -54,14 +54,16 @@ def compute_artifact_id(obj: Dict[str, Any]) -> str:
         base.pop("artifact_id", None)
     canonical = canonicalize(base)
     digest = hashlib.sha256(canonical).hexdigest()
-    return f"sha256:{digest}"
+    return f"sha256-{digest}"
 
 
 def save_artifact(obj: Dict[str, Any]) -> str:
     """Persist an artifact and return its identifier.
 
-    The artifact is written into ``artifacts/<type>/<artifact_id>.json`` using
-    canonical JSON serialisation.
+    The artifact is written into ``artifacts/<Type>/<artifact_id>.json`` using
+    canonical JSON serialisation. ``artifact_id`` is generated deterministically
+    from the canonical JSON representation of the payload without the
+    ``artifact_id`` field itself.
     """
 
     if not isinstance(obj, dict):
@@ -78,7 +80,7 @@ def save_artifact(obj: Dict[str, Any]) -> str:
     if not isinstance(artifact_type, str) or not artifact_type:
         raise ValueError("Artifact type must be a non-empty string")
 
-    target_dir = _ARTIFACT_ROOT / artifact_type.lower()
+    target_dir = _ARTIFACT_ROOT / artifact_type
     target_dir.mkdir(parents=True, exist_ok=True)
     target_path = target_dir / f"{artifact_id}.json"
     target_path.write_bytes(canonicalize(artifact_copy))
@@ -91,9 +93,11 @@ def save_artifact(obj: Dict[str, Any]) -> str:
 def load_artifact(artifact_id: str) -> Dict[str, Any]:
     """Load and return an artifact by its identifier."""
 
-    if not artifact_id.startswith("sha256:"):
-        raise ValueError("Artifact identifier must start with 'sha256:'")
-    for type_dir in _ARTIFACT_ROOT.iterdir():
+    if not artifact_id.startswith("sha256-"):
+        raise ValueError("Artifact identifier must start with 'sha256-'")
+    for type_dir in _ARTIFACT_ROOT.glob("*"):
+        if not type_dir.is_dir():
+            continue
         candidate = type_dir / f"{artifact_id}.json"
         if candidate.exists():
             return json.loads(candidate.read_text("utf-8"))
@@ -103,7 +107,7 @@ def load_artifact(artifact_id: str) -> Dict[str, Any]:
 def ref(path_or_id: str) -> Dict[str, Any]:
     """Resolve *path_or_id* either from the store or from a JSON file."""
 
-    if path_or_id.startswith("sha256:"):
+    if path_or_id.startswith("sha256-"):
         return load_artifact(path_or_id)
     path = Path(path_or_id)
     if not path.is_absolute():

@@ -23,11 +23,11 @@
     },
     "candidate_ref": {
       "type": "string",
-      "pattern": "^sha256:[0-9a-f]{64}$"
+      "pattern": "^sha256-[0-9a-f]{64}$"
     },
     "solved_ref": {
       "type": "string",
-      "pattern": "^sha256:[0-9a-f]{64}$"
+      "pattern": "^sha256-[0-9a-f]{64}$"
     },
     "unique": {
       "type": "boolean"
@@ -44,11 +44,11 @@
       "minimum": 0
     },
     "cutoff": {
-      "type": [
-        "string",
-        "null"
-      ],
-      "minLength": 1
+      "enum": [
+        null,
+        "TIMEOUT",
+        "SECOND_SOLUTION_FOUND"
+      ]
     }
   },
   "required": [

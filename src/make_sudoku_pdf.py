@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from project_config import get_config
-import artifact_store
+from artifacts import artifact_store
 
 
 CONFIG = get_config()
@@ -277,9 +277,9 @@ def port_export(bundle: Dict[str, Any], *, output_dir: str) -> Dict[str, Any]:
 
     complete_ref = inputs.get("complete_ref")
     verdict_ref = inputs.get("verdict_ref")
-    if not (isinstance(complete_ref, str) and complete_ref.startswith("sha256:")):
+    if not (isinstance(complete_ref, str) and complete_ref.startswith("sha256-")):
         raise ValueError("inputs.complete_ref must be a sha256 reference")
-    if not (isinstance(verdict_ref, str) and verdict_ref.startswith("sha256:")):
+    if not (isinstance(verdict_ref, str) and verdict_ref.startswith("sha256-")):
         raise ValueError("inputs.verdict_ref must be a sha256 reference")
 
     if target.get("format") != "pdf":

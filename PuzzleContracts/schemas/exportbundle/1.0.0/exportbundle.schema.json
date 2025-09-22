@@ -30,11 +30,11 @@
       "properties": {
         "complete_ref": {
           "type": "string",
-          "pattern": "^sha256:[0-9a-f]{64}$"
+          "pattern": "^sha256-[0-9a-f]{64}$"
         },
         "verdict_ref": {
           "type": "string",
-          "pattern": "^sha256:[0-9a-f]{64}$"
+          "pattern": "^sha256-[0-9a-f]{64}$"
         }
       },
       "additionalProperties": false

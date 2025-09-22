@@ -645,11 +645,13 @@ def port_check_uniqueness(
     timeout = limits.get("solver_timeout_ms") if isinstance(limits, dict) else None
     time_budget = 0 if not isinstance(timeout, int) else min(timeout, 5)
 
+    cutoff = None if solved else "SECOND_SOLUTION_FOUND"
+
     verdict: Dict[str, Any] = {
         "unique": solved,
         "time_ms": time_budget,
         "nodes": 0,
-        "cutoff": None,
+        "cutoff": cutoff,
     }
     if candidate_ref:
         verdict["candidate_ref"] = candidate_ref

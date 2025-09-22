@@ -44,7 +44,7 @@
     },
     "artifact_id": {
       "type": "string",
-      "pattern": "^sha256:[0-9a-f]{64}$"
+      "pattern": "^sha256-[0-9a-f]{64}$"
     },
     "created_at": {
       "type": "string",
@@ -59,7 +59,7 @@
         "string",
         "null"
       ],
-      "pattern": "^sha256:[0-9a-f]{64}$"
+      "pattern": "^sha256-[0-9a-f]{64}$"
     },
     "run_id": {
       "type": "string",
@@ -79,7 +79,7 @@
       "type": "array",
       "items": {
         "type": "string",
-        "pattern": "^sha256:[0-9a-f]{64}$"
+        "pattern": "^sha256-[0-9a-f]{64}$"
       },
       "uniqueItems": true
     },

@@ -1,16 +1,16 @@
 {
-  "artifact_id": "sha256:invalid",
+  "artifact_id": "sha256-invalid",
   "created_at": "2025-09-20T23:17:45.790Z",
   "errors": [],
   "ext": {},
   "inputs": {
-    "complete_ref": "sha256:816d39e1bf62193ea3a1dc645a6854eeac2f3caec542d09d304028e6de149e70",
-    "verdict_ref": "sha256:7393450b7443ea406103fa08514315a0b0d66353599634a9b217ecd15839f614"
+    "complete_ref": "sha256-816d39e1bf62193ea3a1dc645a6854eeac2f3caec542d09d304028e6de149e70",
+    "verdict_ref": "sha256-7393450b7443ea406103fa08514315a0b0d66353599634a9b217ecd15839f614"
   },
   "metrics": {"time_ms": 0},
   "parents": [
-    "sha256:816d39e1bf62193ea3a1dc645a6854eeac2f3caec542d09d304028e6de149e70",
-    "sha256:7393450b7443ea406103fa08514315a0b0d66353599634a9b217ecd15839f614"
+    "sha256-816d39e1bf62193ea3a1dc645a6854eeac2f3caec542d09d304028e6de149e70",
+    "sha256-7393450b7443ea406103fa08514315a0b0d66353599634a9b217ecd15839f614"
   ],
   "puzzle_type": "sudoku",
   "render_meta": {"page": "A4", "dpi": 300},
@@ -19,7 +19,7 @@
   "schema_path": "schemas/exportbundle/1.0.0/exportbundle.schema.json",
   "schema_version": "1.0.0",
   "seed": "invalid",
-  "spec_ref": "sha256:e5f9c3f7695b69cf984629992926aa9d65e4664b509a0378c68ce0a59f7d2bdf",
+  "spec_ref": "sha256-e5f9c3f7695b69cf984629992926aa9d65e4664b509a0378c68ce0a59f7d2bdf",
   "stage": "stage.export.bundle",
   "target": {"format": "png", "template": "classic@1"},
   "type": "ExportBundle",
