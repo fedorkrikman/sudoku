@@ -1,5 +1,10 @@
 # sudoku
 
+## Читайте в первую очередь
+
+- [docs/CODEX_GUIDE.md](docs/CODEX_GUIDE.md)
+- [docs/GOALS_ROADMAP.md](docs/GOALS_ROADMAP.md)
+
 ## Offline pipeline
 
 Пайплайн выполняется локально и состоит из четырёх шагов: Spec → CompleteGrid →
