@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from artifacts import artifact_store
-from contracts import schema_validator
+from contracts import loader, validator
 import make_sudoku_pdf
 import sudoku_generator
 import sudoku_solver
@@ -68,7 +68,7 @@ def _base_envelope(
     parents: List[str],
     spec_ref: Optional[str],
 ) -> Dict[str, Any]:
-    descriptor = schema_validator.get_schema_descriptor(artifact_type)
+    descriptor = loader.get_descriptor(artifact_type)
     envelope: Dict[str, Any] = {
         "type": artifact_type,
         "schema_version": descriptor.version,
@@ -89,9 +89,9 @@ def _base_envelope(
     return envelope
 
 
-def _finalise_and_store(artifact: Dict[str, Any]) -> str:
+def _finalise_and_store(artifact: Dict[str, Any], expect_type: str, profile: str | None) -> str:
     artifact["artifact_id"] = artifact_store.compute_artifact_id(artifact)
-    schema_validator.validate_artifact(artifact)
+    validator.assert_valid(artifact, expect_type=expect_type, profile=profile, store=artifact_store)
     return artifact_store.save_artifact(artifact)
 
 
@@ -101,6 +101,8 @@ def run_pipeline(output_dir: str = _DEFAULT_OUTPUT_DIR) -> Dict[str, Any]:
     root_seed = os.environ.get("PUZZLE_ROOT_SEED", "default-root-seed")
     run_id = f"run-{uuid.uuid5(uuid.NAMESPACE_URL, root_seed).hex[:12]}"
     results: Dict[str, Any] = {"run_id": run_id, "root_seed": root_seed}
+
+    current_profile = os.environ.get("PUZZLE_VALIDATION_PROFILE", "dev")
 
     # Stage 1: build and persist the Spec artifact.
     spec_stage = "stage.config.spec"
@@ -116,7 +118,7 @@ def run_pipeline(output_dir: str = _DEFAULT_OUTPUT_DIR) -> Dict[str, Any]:
     )
     spec_artifact.update(spec_payload)
     spec_artifact["metrics"]["time_ms"] = _deterministic_duration(spec_seed, spec_stage)
-    spec_id = _finalise_and_store(spec_artifact)
+    spec_id = _finalise_and_store(spec_artifact, "Spec", current_profile)
     results["spec_id"] = spec_id
 
     # Stage 2: generate a complete grid.
@@ -133,7 +135,7 @@ def run_pipeline(output_dir: str = _DEFAULT_OUTPUT_DIR) -> Dict[str, Any]:
     )
     complete_artifact.update(complete_payload)
     complete_artifact["metrics"]["time_ms"] = _deterministic_duration(complete_seed, complete_stage)
-    complete_id = _finalise_and_store(complete_artifact)
+    complete_id = _finalise_and_store(complete_artifact, "CompleteGrid", current_profile)
     results["complete_id"] = complete_id
 
     # Stage 3: verify uniqueness / solved state.
@@ -154,7 +156,7 @@ def run_pipeline(output_dir: str = _DEFAULT_OUTPUT_DIR) -> Dict[str, Any]:
     )
     verdict_artifact.update(verdict_payload)
     verdict_artifact["metrics"]["time_ms"] = _deterministic_duration(verdict_seed, verdict_stage)
-    verdict_id = _finalise_and_store(verdict_artifact)
+    verdict_id = _finalise_and_store(verdict_artifact, "Verdict", current_profile)
     results["verdict_id"] = verdict_id
 
     # Stage 4: build export bundle.
@@ -176,7 +178,7 @@ def run_pipeline(output_dir: str = _DEFAULT_OUTPUT_DIR) -> Dict[str, Any]:
     )
     bundle_artifact.update(bundle_payload)
     bundle_artifact["metrics"]["time_ms"] = _deterministic_duration(bundle_seed, bundle_stage)
-    bundle_id = _finalise_and_store(bundle_artifact)
+    bundle_id = _finalise_and_store(bundle_artifact, "ExportBundle", current_profile)
     results["exportbundle_id"] = bundle_id
 
     # Stage 5: invoke export port and return metadata.

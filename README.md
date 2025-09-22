@@ -27,6 +27,21 @@ PYTHONPATH=src python -m orchestrator.orchestrator
 JSON, вычисляет `artifact_id` вида `sha256-<hex>` и обеспечивает стабильные
 пути хранения.
 
+## Validation Center
+
+Единый валидационный центр находится в [`src/contracts/`](./src/contracts).
+Основные точки входа — функции `validator.validate` и `validator.assert_valid`,
+которые проверяют артефакты по JSON-Schema, доменным инвариантам и
+кросс-ссылкам. Оркестратор вызывает эти функции на границах стадий перед
+записью артефактов, а `scripts/check_contracts.py` использует тот же API для
+офлайн-проверок.
+
+Профиль строгости выбирается через переменную окружения
+`PUZZLE_VALIDATION_PROFILE` (`dev`|`ci`|`prod`). Профиль `dev` выполняет все
+проверки и не валит пайплайн по WARN, `ci` трактует WARN как ошибки, `prod`
+оставляет ключевые правила строгими, а второстепенные проверки (например
+`verdict.cutoff.invalid`) переводит в WARN.
+
 ## Local checks
 
 Минимальный офлайн-CI доступен в директории [`scripts/`](./scripts):

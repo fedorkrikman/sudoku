@@ -12,14 +12,34 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from artifacts import artifact_store
+from contracts import validator
 from orchestrator import orchestrator
+
+
+def _validate_outputs(result: dict) -> None:
+    profile = os.environ.get("PUZZLE_VALIDATION_PROFILE")
+    mapping = {
+        "spec_id": "Spec",
+        "complete_id": "CompleteGrid",
+        "verdict_id": "Verdict",
+        "exportbundle_id": "ExportBundle",
+    }
+    for key, expect_type in mapping.items():
+        artifact_id = result.get(key)
+        if not artifact_id:
+            continue
+        artifact = artifact_store.load_artifact(artifact_id)
+        validator.assert_valid(artifact, expect_type=expect_type, profile=profile, store=artifact_store)
 
 
 def _run_with_seed(seed: str) -> dict:
     previous = os.environ.get("PUZZLE_ROOT_SEED")
     try:
         os.environ["PUZZLE_ROOT_SEED"] = seed
-        return orchestrator.run_pipeline()
+        result = orchestrator.run_pipeline()
+        _validate_outputs(result)
+        return result
     finally:
         if previous is None:
             os.environ.pop("PUZZLE_ROOT_SEED", None)
