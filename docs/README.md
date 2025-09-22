@@ -15,6 +15,11 @@
 ./scripts/smoke_determinism.py
 ```
 
+## Validation Center API
+- Код Validation Center расположен в [`src/contracts/`](../src/contracts). Экспортируются фасады `contracts.validator.validate`, `assert_valid`, `check_refs` и профили из `contracts.profiles`.
+- Профиль строгости выбирается переменной `PUZZLE_VALIDATION_PROFILE` (`dev`|`ci`|`prod`) или передачей имени/конфига в фасад.
+- Оркестратор и скрипты вызывают ЕВЦ только на границах стадий: перед сохранением Spec/CompleteGrid/Verdict/ExportBundle и перед рендером PDF — `check_refs`.
+
 ## Где искать контракты и артефакты
 - Схемы: каталог [`PuzzleContracts/`](../PuzzleContracts), идентификаторы описаны в `catalog.json`.
 - Артефакты: хранилище [`artifacts/`](../artifacts) с канонизированными JSON и идентификаторами `sha256-*`.

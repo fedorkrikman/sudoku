@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from . import loader, profiles, rulebook
 from .errors import (
     SEVERITY_WARN,
+    ManagedValidationError,
     ValidationIssue,
     ValidationReport,
     make_error,
@@ -20,14 +21,6 @@ try:  # Optional dependency for schema validation
     import jsonschema  # type: ignore[import-not-found]
 except ImportError:  # pragma: no cover - optional dependency
     jsonschema = None  # type: ignore[assignment]
-
-
-class ValidationError(RuntimeError):
-    """Raised when :func:`assert_valid` fails."""
-
-    def __init__(self, message: str, report: ValidationReport) -> None:
-        super().__init__(message)
-        self.report = report
 
 
 class _CachingResolver:
@@ -53,11 +46,13 @@ class _CachingResolver:
         return resolved
 
 
-def _choose_profile(name: Optional[str]) -> ProfileConfig:
-    if name in (None, "", "auto"):
+def _choose_profile(profile: str | ProfileConfig | None) -> ProfileConfig:
+    if isinstance(profile, ProfileConfig):
+        return profile
+    if profile in (None, "", "auto"):
         env = os.environ.get("PUZZLE_VALIDATION_PROFILE")
         return profiles.get_profile(env)
-    return profiles.get_profile(name)
+    return profiles.get_profile(str(profile))
 
 
 def _coerce_resolver(store: Any) -> Tuple[Any, Optional[_CachingResolver]]:
@@ -205,7 +200,13 @@ def _apply_overrides(profile: ProfileConfig, artifact_type: str, issues: List[Va
     return errors, warnings
 
 
-def validate(artifact: Dict[str, Any], expect_type: str, profile: str | None = None, *, store: Any = None) -> ValidationReport:
+def validate(
+    artifact: Dict[str, Any],
+    expect_type: str,
+    profile: str | ProfileConfig | None = None,
+    *,
+    store: Any = None,
+) -> ValidationReport:
     profile_cfg = _choose_profile(profile)
     timings = {"schema": 0, "invariants": 0, "crossrefs": 0}
     all_errors: List[ValidationIssue] = []
@@ -247,9 +248,15 @@ def validate(artifact: Dict[str, Any], expect_type: str, profile: str | None = N
     return ValidationReport(ok=ok, errors=all_errors, warnings=all_warnings, timings_ms=timings)
 
 
-def assert_valid(artifact: Dict[str, Any], expect_type: str, profile: str | None = None, *, store: Any = None) -> None:
+def assert_valid(
+    artifact: Dict[str, Any],
+    expect_type: str,
+    profile: str | ProfileConfig | None = None,
+    *,
+    store: Any = None,
+) -> None:
     profile_cfg = _choose_profile(profile)
-    report = validate(artifact, expect_type, profile=profile_cfg.name, store=store)
+    report = validate(artifact, expect_type, profile=profile_cfg, store=store)
     if report.ok and not (profile_cfg.warn_as_error and report.warnings):
         return
     issues = report.errors[:]
@@ -258,10 +265,14 @@ def assert_valid(artifact: Dict[str, Any], expect_type: str, profile: str | None
     codes = ", ".join(issue.code for issue in issues[:5])
     if len(issues) > 5:
         codes += ", …"
-    raise ValidationError(f"Validation failed for {expect_type}: {codes}", report)
+    raise ManagedValidationError(f"Validation failed for {expect_type}: {codes}", report)
 
 
-def check_refs(bundle_or_id: Dict[str, Any] | str, store: Any, profile: str | None = None) -> ValidationReport:
+def check_refs(
+    bundle_or_id: Dict[str, Any] | str,
+    store: Any,
+    profile: str | ProfileConfig | None = None,
+) -> ValidationReport:
     if store is None:
         raise ValueError("store is required for check_refs")
     base, resolver = _coerce_resolver(store)
@@ -275,7 +286,7 @@ def check_refs(bundle_or_id: Dict[str, Any] | str, store: Any, profile: str | No
 
 
 __all__ = [
-    "ValidationError",
+    "ManagedValidationError",
     "assert_valid",
     "check_refs",
     "validate",

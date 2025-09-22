@@ -47,6 +47,10 @@ JSON, вычисляет `artifact_id` вида `sha256-<hex>` и обеспеч
 оставляет ключевые правила строгими, а второстепенные проверки (например
 `verdict.cutoff.invalid`) переводит в WARN.
 
+Дополнительные детали и ссылки собраны в [docs/ADR/adr-0002-validation-center.md](docs/ADR/adr-0002-validation-center.md)
+и разделе «Validation Center API» в [docs/README.md](docs/README.md) и
+[docs/CODEX_GUIDE.md](docs/CODEX_GUIDE.md).
+
 ## Local checks
 
 Минимальный офлайн-CI доступен в директории [`scripts/`](./scripts):

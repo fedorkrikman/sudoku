@@ -30,6 +30,14 @@ class ValidationReport:
     timings_ms: dict[str, int]
 
 
+class ManagedValidationError(RuntimeError):
+    """Raised when a validation profile requires aborting execution."""
+
+    def __init__(self, message: str, report: ValidationReport) -> None:
+        super().__init__(message)
+        self.report = report
+
+
 def make_error(code: str, msg: str, path: str) -> ValidationIssue:
     """Construct an error-level :class:`ValidationIssue`."""
 
@@ -45,6 +53,7 @@ def make_warning(code: str, msg: str, path: str) -> ValidationIssue:
 __all__ = [
     "SEVERITY_ERROR",
     "SEVERITY_WARN",
+    "ManagedValidationError",
     "ValidationIssue",
     "ValidationReport",
     "make_error",

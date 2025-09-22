@@ -181,7 +181,15 @@ def run_pipeline(output_dir: str = _DEFAULT_OUTPUT_DIR) -> Dict[str, Any]:
     bundle_id = _finalise_and_store(bundle_artifact, "ExportBundle", current_profile)
     results["exportbundle_id"] = bundle_id
 
-    # Stage 5: invoke export port and return metadata.
+    # Stage 5: ensure cross-references are still consistent before export.
+    crossref_report = validator.check_refs(bundle_id, store=artifact_store, profile=current_profile)
+    if not crossref_report.ok:
+        raise validator.ManagedValidationError(
+            "Export bundle failed cross-reference check",
+            crossref_report,
+        )
+
+    # Invoke export port and return metadata.
     export_result = make_sudoku_pdf.port_export(bundle_artifact, output_dir=output_dir)
     results["pdf_path"] = export_result["pdf_path"]
     results["export_time_ms"] = export_result["time_ms"]

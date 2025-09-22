@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from .errors import ValidationIssue, ValidationReport
+from .errors import ManagedValidationError, ValidationIssue, ValidationReport
 from .profiles import ProfileConfig, get_profile
-from .validator import ValidationError, assert_valid, check_refs, validate
+from .validator import assert_valid, check_refs, validate
 
 __all__ = [
-    "ValidationError",
+    "ManagedValidationError",
     "ValidationIssue",
     "ValidationReport",
     "ProfileConfig",

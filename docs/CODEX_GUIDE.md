@@ -20,6 +20,11 @@
 - Профили: `dev` (по умолчанию), `ci` (интерпретирует WARN как ERROR), `prod` (облегчённые второстепенные проверки).
 - Переключение выполняется через переменную окружения `PUZZLE_VALIDATION_PROFILE` или параметр оркестратора.
 
+## 4.1 Validation Center API
+- Код ЕВЦ расположен в `src/contracts/` и состоит из слоёв: `loader`, `rulebook`, `profiles`, `errors`, `validator`.
+- Основные фасады: `contracts.validator.validate`, `contracts.validator.assert_valid`, `contracts.validator.check_refs` и `contracts.profiles.get_profile`.
+- Вызовы выполняются только на границах стадий (вход/выход артефактов и быстрый `check_refs` перед рендером PDF). Дополнительная валидация внутри стадий запрещена.
+
 ## 5. Оркестратор и многозадачность — границы
 - Оркестратор не содержит доменной логики; он управляет типами артефактов и стадиями.
 - Многозадачность — способ исполнения. Вход задачи имеет форму `{stage, input_artifact_id, seed, options}`.
