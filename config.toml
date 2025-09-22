@@ -103,3 +103,12 @@ techniques = [
 "XY-Wing" = 3.6
 "Swordfish (Rows)" = 4.0
 "Swordfish (Cols)" = 4.0
+
+[solver.runtime]
+solver_impl = "legacy"
+trace_level = "none"
+multitask_enabled = false
+multitask_intra_solver = false
+multitask_backend = "sequential"
+max_workers = 1
+branching_limit = 1
