@@ -30,7 +30,7 @@ def step_propagate(state: StateCapsule, params: Mapping[str, Any] | None = None)
     -----
     The actual implementation will be ported from the legacy solver.  Until
     then the function raises :class:`NotImplementedError` which is interpreted
-    by :class:`~solver_nova.step_runner.StepRunner` as a skipped step.
+    by the ``StepRunner`` as a skipped step.
     """
 
     raise NotImplementedError("Propagation step is pending porting from legacy solver.")
