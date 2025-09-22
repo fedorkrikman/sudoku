@@ -1,5 +1,5 @@
 """Solver integration namespace."""
 
-from .solver_port import run
+from .solver_port import check_uniqueness
 
-__all__ = ["run"]
+__all__ = ["check_uniqueness"]

@@ -1,45 +1,31 @@
-"""SolverPort facade orchestrating legacy and Nova implementations."""
+"""Compatibility shim exposing puzzle-first solver ports."""
 
 from __future__ import annotations
 
-from typing import Literal, Optional, Tuple
+from typing import Any, Dict, Mapping, Optional
+
+from ports.solver_port import check_uniqueness as _check_uniqueness
 
 
-def run(
-    spec_artifact_id: str,
-    impl: Literal["legacy", "nova", "shadow"],
+def check_uniqueness(
+    puzzle_kind: str,
+    spec: Dict[str, Any],
+    grid_or_candidate: Dict[str, Any],
     *,
-    shadow_sample_rate: float = 0.0,
-) -> Tuple[str, Optional[str]]:
-    """Execute the configured solver implementation.
+    options: Optional[Dict[str, Any]] = None,
+    profile: str = "dev",
+    env: Mapping[str, str] | None = None,
+):
+    """Delegate uniqueness checks to the shared puzzle router."""
 
-    Parameters
-    ----------
-    spec_artifact_id:
-        Identifier of the validated Spec artifact residing in the artifact
-        store.
-    impl:
-        Selector for the active solver implementation.  ``"legacy"`` represents
-        the current solver, ``"nova"`` activates the re-architecture and
-        ``"shadow"`` allows dual execution for verification scenarios.
-    shadow_sample_rate:
-        Fraction of runs that should execute the shadow solver path.  Only
-        meaningful when ``impl == "shadow"``.
-
-    Returns
-    -------
-    Tuple[str, Optional[str]]
-        Identifiers of the produced CompleteGrid artifact and optional
-        SolveTrace artifact.
-
-    Notes
-    -----
-    The facade is intentionally left unimplemented for the scaffold.  Concrete
-    logic will be introduced once Nova steps are available and the Validation
-    Center wiring is finalised.
-    """
-
-    raise NotImplementedError("SolverPort.run is pending integration with solver implementations.")
+    return _check_uniqueness(
+        puzzle_kind,
+        spec,
+        grid_or_candidate,
+        options=options,
+        profile=profile,
+        env=env,
+    )
 
 
-__all__ = ["run"]
+__all__ = ["check_uniqueness"]

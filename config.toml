@@ -1,3 +1,9 @@
+[run]
+puzzle_kind = "sudoku-9x9"
+
+[run.by_profile.ci]
+puzzle_kind = "sudoku-9x9"
+
 [PUZZLE]
 name = "sudoku-9x9"
 size = 9
@@ -103,6 +109,48 @@ techniques = [
 "XY-Wing" = 3.6
 "Swordfish (Rows)" = 4.0
 "Swordfish (Cols)" = 4.0
+
+[modules."sudoku-9x9".solver]
+state = "default"
+impl = "legacy"
+sample_rate = 0.0
+allow_fallback = true
+contracts = "^1.0"
+
+[modules."sudoku-9x9".solver.by_profile.ci]
+state = "default"
+impl = "legacy"
+
+[modules."sudoku-9x9".solver.by_profile.dev]
+state = "default"
+impl = "legacy"
+sample_rate = 0.0
+
+[modules."sudoku-9x9".generator]
+state = "default"
+impl = "legacy"
+allow_fallback = true
+contracts = "^1.0"
+
+[modules."sudoku-9x9".generator.by_profile.ci]
+state = "default"
+impl = "legacy"
+
+[modules."sudoku-9x9".printer]
+state = "default"
+impl = "legacy"
+allow_fallback = true
+contracts = "^1.0"
+
+[modules."sudoku-9x9".printer.by_profile.ci]
+state = "default"
+impl = "legacy"
+
+[modules."sudoku-9x9".difficulty]
+state = "default"
+impl = "baseline"
+allow_fallback = true
+contracts = "^1.0"
 
 [solver.runtime]
 solver_impl = "legacy"
