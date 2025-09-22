@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:puzzle:schemas:envelope:1.0.0",
+  "title": "Puzzle Artifact Envelope",
+  "type": "object",
+  "required": [
+    "type",
+    "schema_version",
+    "schema_id",
+    "schema_path",
+    "artifact_id",
+    "created_at",
+    "puzzle_type",
+    "run_id",
+    "seed",
+    "stage",
+    "parents",
+    "metrics",
+    "warnings",
+    "errors",
+    "ext"
+  ],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "Spec",
+        "CompleteGrid",
+        "Verdict",
+        "ExportBundle"
+      ]
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "schema_id": {
+      "type": "string",
+      "pattern": "^urn:puzzle:schemas:[a-z]+:[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "schema_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifact_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "puzzle_type": {
+      "type": "string",
+      "const": "sudoku"
+    },
+    "spec_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "seed": {
+      "type": [
+        "string",
+        "integer"
+      ]
+    },
+    "stage": {
+      "type": "string",
+      "minLength": 1
+    },
+    "parents": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      },
+      "uniqueItems": true
+    },
+    "metrics": {
+      "type": "object",
+      "required": [
+        "time_ms"
+      ],
+      "properties": {
+        "time_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": {
+        "type": [
+          "number",
+          "integer",
+          "string",
+          "boolean",
+          "null"
+        ]
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ext": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "Spec"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "spec_ref": {
+            "type": [
+              "null"
+            ]
+          }
+        }
+      },
+      "else": {
+        "required": [
+          "spec_ref"
+        ]
+      }
+    }
+  ]
+}

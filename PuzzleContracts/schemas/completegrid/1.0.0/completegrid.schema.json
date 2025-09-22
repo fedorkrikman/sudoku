@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:puzzle:schemas/completegrid:1.0.0",
+  "title": "Sudoku Complete Grid v1",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "../../_common/envelope-1.0.0.json"
+    }
+  ],
+  "properties": {
+    "type": {
+      "const": "CompleteGrid"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "schema_id": {
+      "const": "urn:puzzle:schemas/completegrid:1.0.0"
+    },
+    "schema_path": {
+      "const": "schemas/completegrid/1.0.0/completegrid.schema.json"
+    },
+    "encoding": {
+      "type": "object",
+      "required": [
+        "kind",
+        "alphabet"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "row-major-string"
+        },
+        "alphabet": {
+          "type": "string",
+          "const": "as-in-spec"
+        }
+      },
+      "additionalProperties": false
+    },
+    "grid": {
+      "type": "string",
+      "minLength": 1
+    },
+    "canonical_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "encoding",
+    "grid",
+    "canonical_hash"
+  ],
+  "additionalProperties": true
+}

@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:puzzle:schemas/spec:1.0.0",
+  "title": "Sudoku Spec v1",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "../../_common/envelope-1.0.0.json"
+    }
+  ],
+  "properties": {
+    "type": {
+      "const": "Spec"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "schema_id": {
+      "const": "urn:puzzle:schemas/spec:1.0.0"
+    },
+    "schema_path": {
+      "const": "schemas/spec/1.0.0/spec.schema.json"
+    },
+    "name": {
+      "type": "string"
+    },
+    "size": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "block": {
+      "type": "object",
+      "required": [
+        "rows",
+        "cols"
+      ],
+      "properties": {
+        "rows": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cols": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "alphabet": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "limits": {
+      "type": "object",
+      "required": [
+        "solver_timeout_ms"
+      ],
+      "properties": {
+        "solver_timeout_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "name",
+    "size",
+    "block",
+    "alphabet",
+    "limits"
+  ],
+  "additionalProperties": true
+}

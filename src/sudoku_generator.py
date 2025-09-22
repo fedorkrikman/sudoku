@@ -2,8 +2,9 @@
 # Generate full solutions, reduce to puzzles with uniqueness and logical solvability,
 # and score "interest" using sudoku_solver.LogicSolver steps.
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+import hashlib
 import importlib.util
 import json
 import random
@@ -13,8 +14,11 @@ import time
 # Import solver module from sibling path (adjust if needed)
 from pathlib import Path
 
-from project_config import get_config
 here = Path(__file__).resolve().parent
+if str(here) not in sys.path:
+    sys.path.append(str(here))
+
+from project_config import get_config
 sol_path = here / "sudoku_solver.py"
 spec = importlib.util.spec_from_file_location("sudoku_solver", str(sol_path))
 sudoku_solver = importlib.util.module_from_spec(spec)
@@ -604,3 +608,44 @@ if __name__ == "__main__":
         with open("interesting_sudoku.json", "w", encoding="utf-8") as f:
             json.dump(bundle, f, ensure_ascii=False, indent=2)
         print("Saved JSON to interesting_sudoku.json")
+
+def port_generate_complete(spec: Dict[str, Any], *, seed: str) -> Dict[str, Any]:
+    """Generate a deterministic CompleteGrid payload from a Spec artifact.
+
+    The function is pure (no side effects) and produces data that can be merged
+    with an artifact envelope. Identical ``spec`` and ``seed`` inputs yield the
+    same grid.
+    """
+    if not isinstance(spec, dict):
+        raise TypeError("spec must be a mapping")
+
+    size = spec.get("size")
+    block = spec.get("block", {})
+    alphabet = spec.get("alphabet")
+    if not (isinstance(size, int) and isinstance(block, dict) and isinstance(alphabet, list)):
+        raise ValueError("spec must contain size, block and alphabet fields")
+
+    rows = block.get("rows")
+    cols = block.get("cols")
+    if not (isinstance(rows, int) and isinstance(cols, int)):
+        raise ValueError("spec.block must define integer rows and cols")
+    if rows <= 0 or cols <= 0 or rows * cols != size:
+        raise ValueError("spec.block dimensions must multiply to size")
+    if len(alphabet) != size or not all(isinstance(ch, str) and ch for ch in alphabet):
+        raise ValueError("alphabet must provide exactly size non-empty strings")
+
+    seed_material = f"{seed}|{spec.get('artifact_id', '')}|{spec.get('name', '')}"
+    offset = int(hashlib.sha256(seed_material.encode('utf-8')).hexdigest(), 16) % size
+    rotated_alphabet = alphabet[offset:] + alphabet[:offset]
+
+    def pattern(r: int, c: int) -> int:
+        return (r * cols + r // rows + c) % size
+
+    grid_chars = [rotated_alphabet[pattern(r, c)] for r in range(size) for c in range(size)]
+    grid = ''.join(grid_chars)
+    digest = hashlib.sha256(grid.encode('utf-8')).hexdigest()
+    return {
+        "encoding": {"kind": "row-major-string", "alphabet": "as-in-spec"},
+        "grid": grid,
+        "canonical_hash": f"sha256:{digest}",
+    }

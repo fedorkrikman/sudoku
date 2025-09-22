@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:puzzle:schemas/verdict:1.0.0",
+  "title": "Sudoku Verdict v1",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "../../_common/envelope-1.0.0.json"
+    }
+  ],
+  "properties": {
+    "type": {
+      "const": "Verdict"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "schema_id": {
+      "const": "urn:puzzle:schemas/verdict:1.0.0"
+    },
+    "schema_path": {
+      "const": "schemas/verdict/1.0.0/verdict.schema.json"
+    },
+    "candidate_ref": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "solved_ref": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "unique": {
+      "type": "boolean"
+    },
+    "nodes": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "time_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "cutoff": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    }
+  },
+  "required": [
+    "unique",
+    "time_ms"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "unique": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "solved_ref"
+        ]
+      }
+    },
+    {
+      "oneOf": [
+        {
+          "required": [
+            "candidate_ref"
+          ]
+        },
+        {
+          "required": [
+            "solved_ref"
+          ]
+        }
+      ]
+    }
+  ],
+  "additionalProperties": true
+}

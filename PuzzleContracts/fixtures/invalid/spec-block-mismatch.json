@@ -1,0 +1,23 @@
+{
+  "alphabet": ["1", "2", "3", "4", "5", "6", "7", "8", "9"],
+  "artifact_id": "sha256:invalid",
+  "block": {"cols": 3, "rows": 2},
+  "created_at": "2025-09-20T23:17:45.790Z",
+  "errors": [],
+  "ext": {},
+  "limits": {"solver_timeout_ms": 1000},
+  "metrics": {"time_ms": 0},
+  "name": "sudoku-9x9",
+  "parents": [],
+  "puzzle_type": "sudoku",
+  "run_id": "run-default-root-seed",
+  "schema_id": "urn:puzzle:schemas/spec:1.0.0",
+  "schema_path": "schemas/spec/1.0.0/spec.schema.json",
+  "schema_version": "1.0.0",
+  "seed": "broken-seed",
+  "size": 9,
+  "spec_ref": null,
+  "stage": "stage.config.spec",
+  "type": "Spec",
+  "warnings": []
+}
