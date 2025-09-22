@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import sys
 
+import importlib
+
 from .state_capsule import StateCapsule
 from .step_runner import (
     StepHandler,
@@ -39,7 +41,21 @@ __all__ = [
     "StepTraceRecorder",
     "merge_deltas",
     "register_step",
+    "port_check_uniqueness",
 ]
 
 NOVUS_MODULE = sys.modules[__name__]
 __all__.append("NOVUS_MODULE")
+
+
+def port_check_uniqueness(
+    spec: dict,
+    grid_or_candidate: dict,
+    *,
+    options: dict | None = None,
+) -> dict:
+    """Temporarily delegate the uniqueness port to the legacy solver."""
+
+    legacy_module = importlib.import_module("sudoku_solver")
+    handler = getattr(legacy_module, "port_check_uniqueness")
+    return handler(spec, grid_or_candidate, options=options)

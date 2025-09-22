@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 
 from project_config import get_config
 from artifacts import artifact_store
+from ports import solver_port
 
 
 CONFIG = get_config()
@@ -24,6 +25,49 @@ PAGE_CONFIG = PDF_CONFIG.get("page", {})
 RENDER_CONFIG = PDF_CONFIG.get("rendering", {})
 OUTPUT_CONFIG = PDF_CONFIG.get("output", {})
 FALLBACK_CONFIG = PDF_CONFIG.get("fallback", {})
+
+
+def _as_dict(value: Any) -> Dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _default_puzzle_kind() -> str:
+    run_cfg = _as_dict(CONFIG.get("run"))
+    value = run_cfg.get("puzzle_kind")
+    if isinstance(value, str) and value:
+        return value
+
+    puzzle_cfg = _as_dict(CONFIG.get("PUZZLE"))
+    fallback = puzzle_cfg.get("name")
+    if isinstance(fallback, str) and fallback:
+        return fallback
+
+    return "sudoku-9x9"
+
+
+def _build_solver_spec(puzzle_kind: str) -> Dict[str, Any]:
+    puzzle_cfg = _as_dict(CONFIG.get("PUZZLE"))
+    block_cfg = _as_dict(puzzle_cfg.get("block"))
+    limits_cfg = _as_dict(CONFIG.get("LIMITS"))
+
+    size = int(puzzle_cfg.get("size", 9))
+    rows = int(block_cfg.get("rows", 3))
+    cols = int(block_cfg.get("cols", 3))
+    alphabet_raw = puzzle_cfg.get("alphabet", list("123456789"))
+    if not isinstance(alphabet_raw, list):
+        alphabet_raw = list("123456789")
+    alphabet = [str(ch) for ch in alphabet_raw]
+
+    timeout = limits_cfg.get("solver_timeout_ms", 1000)
+    timeout_ms = int(timeout) if isinstance(timeout, (int, float)) else 1000
+
+    return {
+        "name": puzzle_kind,
+        "size": size,
+        "block": {"rows": rows, "cols": cols},
+        "alphabet": alphabet,
+        "limits": {"solver_timeout_ms": timeout_ms},
+    }
 
 LAYOUT_ROWS = int(LAYOUT_CONFIG.get("rows", 2))
 LAYOUT_COLS = int(LAYOUT_CONFIG.get("cols", 2))
@@ -58,6 +102,7 @@ OUTPUT_PREFIX = str(OUTPUT_CONFIG.get("filename_prefix", "sudoku_9x9_pack"))
 FALLBACK_SEED_MULTIPLIER = int(FALLBACK_CONFIG.get("seed_multiplier", 7))
 FALLBACK_REDUCE_SHARE = float(FALLBACK_CONFIG.get("reduce_time_share", 0.5))
 FALLBACK_MIN_TIME = float(FALLBACK_CONFIG.get("min_time_budget", 2.0))
+DEFAULT_PUZZLE_KIND = _default_puzzle_kind()
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 INCH_PER_CM = 0.3937007874
@@ -130,12 +175,21 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_GAP_CM,
         help="Gap between puzzles in centimetres (default from config).",
     )
+    parser.add_argument(
+        "--puzzle",
+        default=DEFAULT_PUZZLE_KIND,
+        help="Puzzle kind to operate on (default from config).",
+    )
     return parser
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    puzzle_kind = str(args.puzzle)
+    if puzzle_kind != "sudoku-9x9":
+        raise SystemExit("Only 'sudoku-9x9' puzzle kind is supported by this script.")
 
     base_seed = args.seed if args.seed is not None else int(time.time())
     out_path = _resolve_output_path(args.out)
@@ -147,11 +201,37 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     generator = _import_module_from(gen_path, "sudoku_generator")
 
+    solver_spec = _build_solver_spec(puzzle_kind)
+    solver_profile = "dev"
+    solver_module_info = None
+
+    def _verify_solution(solution_grid, index: int) -> None:
+        nonlocal solver_module_info
+
+        grid_str = generator.to_string(solution_grid)
+        payload, resolved = solver_port.check_uniqueness(
+            puzzle_kind,
+            dict(solver_spec),
+            {"grid": grid_str, "artifact_id": f"inline-solution-{index + 1}"},
+            profile=solver_profile,
+        )
+
+        if solver_module_info is None:
+            solver_module_info = resolved
+            print(
+                f"  -> Uniqueness via solver '{resolved.impl_id}' (state={resolved.state})"
+            )
+
+        if not payload.get("unique", False):
+            raise RuntimeError(
+                f"Uniqueness check failed for puzzle {index + 1} using solver '{resolved.impl_id}'"
+            )
+
     total_puzzles = max(1, DEFAULT_TOTAL_PUZZLES)
     puzzles_per_page = PUZZLES_PER_PAGE
     pages = max(1, math.ceil(total_puzzles / puzzles_per_page))
 
-    print(f"Generating {total_puzzles} puzzles with base seed: {base_seed}")
+    print(f"Generating {total_puzzles} '{puzzle_kind}' puzzles with base seed: {base_seed}")
     puzzles, solutions, scores, reports = [], [], [], []
 
     for i in range(total_puzzles):
@@ -172,6 +252,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 rng=rng,
                 time_budget=fallback_budget,
             )
+            _verify_solution(sol, i)
             puzzles.append(pzl)
             solutions.append(sol)
             scores.append(sc)
@@ -179,6 +260,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             continue
 
         pzl, sol, sc, rep, stp = res
+        _verify_solution(sol, i)
         puzzles.append(pzl)
         solutions.append(sol)
         scores.append(sc)
