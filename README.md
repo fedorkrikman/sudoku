@@ -20,6 +20,48 @@ PYTHONPATH=src python -m orchestrator.orchestrator
 сид даёт идентичные идентификаторы артефактов (Spec, CompleteGrid, Verdict),
 что позволяет воспроизводить сборки офлайн.
 
+### Запуск через оркестратор
+
+Рекомендуемый способ генерации и экспорта PDF — выполнение оркестратора. Ниже
+приведены основные сценарии:
+
+1. **Базовый (legacy) конвейер** — используется по умолчанию и в CI, весь
+   пайплайн проходит через проверенные legacy-модули.
+
+   ```bash
+   PYTHONPATH=src \
+   python -m orchestrator.orchestrator \
+     --puzzle sudoku-9x9 \
+     --output-dir exports
+   ```
+
+2. **Dev-shadow** — запускает проверенный legacy-конвейер, одновременно
+   подключая Nova Solver в «тени» для сбора метрик. Артефакты экспорта будут
+   сформированы legacy-путём.
+
+   ```bash
+   PUZZLE_VALIDATION_PROFILE=dev \
+   PUZZLE_SOLVER_STATE=shadow \
+   PUZZLE_SOLVER_IMPL=novus \
+   PYTHONPATH=src \
+   python -m orchestrator.orchestrator \
+     --puzzle sudoku-9x9 \
+     --output-dir exports_shadow
+   ```
+
+3. **Полный Nova-конвейер** — включает Nova Solver как основной. Используйте
+   после успешного shadow-прогона.
+
+   ```bash
+   PUZZLE_VALIDATION_PROFILE=dev \
+   PUZZLE_SOLVER_STATE=default \
+   PUZZLE_SOLVER_IMPL=novus \
+   PYTHONPATH=src \
+   python -m orchestrator.orchestrator \
+     --puzzle sudoku-9x9 \
+     --output-dir exports_novus
+   ```
+
 ## Contracts and artifacts
 
 Схемы первого поколения лежат в каталоге [`PuzzleContracts/`](./PuzzleContracts).
