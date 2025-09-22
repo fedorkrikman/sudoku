@@ -23,27 +23,25 @@ except ImportError:  # pragma: no cover - optional dependency
     jsonschema = None  # type: ignore[assignment]
 
 
-class _CachingResolver:
-    def __init__(self, func: Callable[[str], dict]) -> None:
-        self._func = func
+class _StoreResolver:
+    """Adapter providing caching ``load_artifact`` access for cross-ref rules."""
+
+    def __init__(self, loader: Callable[[str], dict]) -> None:
+        self._loader = loader
         self._cache: Dict[str, dict] = {}
 
-    def __call__(self, artifact_id: str) -> dict:
+    def load_artifact(self, artifact_id: str) -> dict:
         if artifact_id in self._cache:
             return self._cache[artifact_id]
-        resolved = self._func(artifact_id)
+        resolved = self._loader(artifact_id)
         self._cache[artifact_id] = resolved
         return resolved
 
     def try_load(self, artifact_id: str) -> Optional[dict]:
-        if artifact_id in self._cache:
-            return self._cache[artifact_id]
         try:
-            resolved = self._func(artifact_id)
+            return self.load_artifact(artifact_id)
         except Exception:  # pragma: no cover - defensive
             return None
-        self._cache[artifact_id] = resolved
-        return resolved
 
 
 def _choose_profile(profile: str | ProfileConfig | None) -> ProfileConfig:
@@ -55,13 +53,18 @@ def _choose_profile(profile: str | ProfileConfig | None) -> ProfileConfig:
     return profiles.get_profile(str(profile))
 
 
-def _coerce_resolver(store: Any) -> Tuple[Any, Optional[_CachingResolver]]:
+def _coerce_resolver(store: Any) -> Tuple[Any, Optional[_StoreResolver]]:
     if store is None:
         return None, None
+    if isinstance(store, _StoreResolver):
+        return store, store
     if callable(store):  # direct resolver
-        return None, _CachingResolver(store)
-    if hasattr(store, "load_artifact") and callable(store.load_artifact):  # type: ignore[attr-defined]
-        return store, _CachingResolver(store.load_artifact)  # type: ignore[arg-type]
+        adapter = _StoreResolver(store)
+        return adapter, adapter
+    loader = getattr(store, "load_artifact", None)
+    if callable(loader):  # type: ignore[arg-type]
+        adapter = _StoreResolver(loader)  # type: ignore[arg-type]
+        return store, adapter
     raise TypeError("store must expose a callable or load_artifact()")
 
 
@@ -219,7 +222,7 @@ def validate(
     all_warnings.extend(schema_warnings_adj)
     timings["schema"] = int((time.perf_counter() - schema_start) * 1000)
 
-    _, resolver = _coerce_resolver(store)
+    base_store, resolver = _coerce_resolver(store)
     spec_context: Optional[dict] = artifact if expect_type == "Spec" else None
     if spec_context is None and isinstance(artifact, dict):
         spec_ref = artifact.get("spec_ref")
@@ -238,7 +241,8 @@ def validate(
 
     if profile_cfg.check_crossrefs and isinstance(artifact, dict):
         crossref_start = time.perf_counter()
-        crossref_issues = rulebook.run_crossrefs(artifact, store, resolver, profile_cfg)
+        store_for_rules = resolver if resolver is not None else base_store
+        crossref_issues = rulebook.run_crossrefs(artifact, store_for_rules, profile_cfg)
         cr_errors, cr_warnings = _apply_overrides(profile_cfg, expect_type, crossref_issues)
         all_errors.extend(cr_errors)
         all_warnings.extend(cr_warnings)
@@ -279,10 +283,11 @@ def check_refs(
     if resolver is None:
         raise ValueError("store must provide a resolver for check_refs")
     if isinstance(bundle_or_id, str):
-        artifact = resolver(bundle_or_id)
+        artifact = resolver.load_artifact(bundle_or_id)
     else:
         artifact = bundle_or_id
-    return validate(artifact, expect_type="ExportBundle", profile=profile, store=store if base else resolver)
+    store_arg = resolver if resolver is not None else base
+    return validate(artifact, expect_type="ExportBundle", profile=profile, store=store_arg)
 
 
 __all__ = [

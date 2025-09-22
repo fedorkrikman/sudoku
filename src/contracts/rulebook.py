@@ -11,8 +11,10 @@ from .errors import ValidationIssue, make_error, make_warning
 from .profiles import ProfileConfig
 
 
-class ArtifactResolver(Protocol):
-    def __call__(self, artifact_id: str) -> dict:  # pragma: no cover - structural typing
+class ArtifactStore(Protocol):
+    """Protocol describing the subset of the artifact store required by rules."""
+
+    def load_artifact(self, artifact_id: str) -> dict:
         ...
 
 
@@ -25,7 +27,7 @@ class InvariantRule:
 @dataclass(frozen=True)
 class CrossRefRule:
     name: str
-    check: Callable[[dict, Optional[object], Optional[ArtifactResolver], ProfileConfig], Iterable[ValidationIssue]]
+    check: Callable[[dict, Optional[ArtifactStore], ProfileConfig], Iterable[ValidationIssue]]
 
 
 def _expect_int(value: object, path: str, code: str, desc: str) -> List[ValidationIssue]:
@@ -249,11 +251,13 @@ def _bundle_format(artifact: dict, _spec: Optional[dict], _profile: ProfileConfi
     return []
 
 
-def _resolve(artifact_id: str, resolver: Optional[ArtifactResolver], path: str) -> tuple[Optional[dict], List[ValidationIssue]]:
-    if resolver is None:
+def _resolve(
+    artifact_id: str, store: Optional[ArtifactStore], path: str
+) -> tuple[Optional[dict], List[ValidationIssue]]:
+    if store is None:
         return None, [make_warning("crossref.artifact_missing", "store resolver not configured", path)]
     try:
-        resolved = resolver(artifact_id)
+        resolved = store.load_artifact(artifact_id)
     except FileNotFoundError:
         return None, [make_error("crossref.artifact_missing", f"artifact {artifact_id} not found", path)]
     except Exception as exc:  # pragma: no cover - defensive
@@ -261,11 +265,13 @@ def _resolve(artifact_id: str, resolver: Optional[ArtifactResolver], path: str) 
     return resolved, []
 
 
-def _grid_spec_ref(artifact: dict, _store: Optional[object], resolver: Optional[ArtifactResolver], _profile: ProfileConfig) -> Iterable[ValidationIssue]:
+def _grid_spec_ref(
+    artifact: dict, store: Optional[ArtifactStore], _profile: ProfileConfig
+) -> Iterable[ValidationIssue]:
     spec_ref = artifact.get("spec_ref")
     if not isinstance(spec_ref, str) or not spec_ref:
         return [make_error("crossref.artifact_missing", "spec_ref must reference a Spec", "$.spec_ref")]
-    resolved, issues = _resolve(spec_ref, resolver, "$.spec_ref")
+    resolved, issues = _resolve(spec_ref, store, "$.spec_ref")
     if issues:
         return issues
     if resolved.get("type") != "Spec":
@@ -273,7 +279,9 @@ def _grid_spec_ref(artifact: dict, _store: Optional[object], resolver: Optional[
     return []
 
 
-def _verdict_refs_exist(artifact: dict, _store: Optional[object], resolver: Optional[ArtifactResolver], _profile: ProfileConfig) -> Iterable[ValidationIssue]:
+def _verdict_refs_exist(
+    artifact: dict, store: Optional[ArtifactStore], _profile: ProfileConfig
+) -> Iterable[ValidationIssue]:
     issues: List[ValidationIssue] = []
     for field in ("candidate_ref", "solved_ref"):
         ref = artifact.get(field)
@@ -282,14 +290,16 @@ def _verdict_refs_exist(artifact: dict, _store: Optional[object], resolver: Opti
         if not isinstance(ref, str) or not ref:
             issues.append(make_error("crossref.type_mismatch", f"{field} must be a reference id", f"$.{field}"))
             continue
-        resolved, new_issues = _resolve(ref, resolver, f"$.{field}")
+        resolved, new_issues = _resolve(ref, store, f"$.{field}")
         issues.extend(new_issues)
         if resolved and resolved.get("type") != "CompleteGrid":
             issues.append(make_error("crossref.type_mismatch", f"{field} must point to CompleteGrid", f"$.{field}"))
     return issues
 
 
-def _bundle_inputs_exist(artifact: dict, _store: Optional[object], resolver: Optional[ArtifactResolver], _profile: ProfileConfig) -> Iterable[ValidationIssue]:
+def _bundle_inputs_exist(
+    artifact: dict, store: Optional[ArtifactStore], _profile: ProfileConfig
+) -> Iterable[ValidationIssue]:
     inputs = artifact.get("inputs")
     if not isinstance(inputs, dict):
         return [make_error("envelope.missing_field", "inputs section is required", "$.inputs")]
@@ -299,12 +309,14 @@ def _bundle_inputs_exist(artifact: dict, _store: Optional[object], resolver: Opt
         if not isinstance(ref, str) or not ref:
             issues.append(make_error("crossref.artifact_missing", f"{field} must be a reference id", f"$.inputs.{field}"))
             continue
-        resolved, new_issues = _resolve(ref, resolver, f"$.inputs.{field}")
+        resolved, new_issues = _resolve(ref, store, f"$.inputs.{field}")
         issues.extend(new_issues)
     return issues
 
 
-def _bundle_types_match(artifact: dict, _store: Optional[object], resolver: Optional[ArtifactResolver], _profile: ProfileConfig) -> Iterable[ValidationIssue]:
+def _bundle_types_match(
+    artifact: dict, store: Optional[ArtifactStore], _profile: ProfileConfig
+) -> Iterable[ValidationIssue]:
     inputs = artifact.get("inputs")
     if not isinstance(inputs, dict):
         return []
@@ -317,7 +329,7 @@ def _bundle_types_match(artifact: dict, _store: Optional[object], resolver: Opti
         ref = inputs.get(field)
         if not isinstance(ref, str) or not ref:
             continue
-        resolved, new_issues = _resolve(ref, resolver, f"$.inputs.{field}")
+        resolved, new_issues = _resolve(ref, store, f"$.inputs.{field}")
         issues.extend(new_issues)
         if resolved and resolved.get("type") != expected_type:
             issues.append(
@@ -330,7 +342,9 @@ def _bundle_types_match(artifact: dict, _store: Optional[object], resolver: Opti
     return issues
 
 
-def _bundle_spec_consistency(artifact: dict, _store: Optional[object], resolver: Optional[ArtifactResolver], _profile: ProfileConfig) -> Iterable[ValidationIssue]:
+def _bundle_spec_consistency(
+    artifact: dict, store: Optional[ArtifactStore], _profile: ProfileConfig
+) -> Iterable[ValidationIssue]:
     bundle_spec = artifact.get("spec_ref")
     if not isinstance(bundle_spec, str) or not bundle_spec:
         return []
@@ -342,7 +356,7 @@ def _bundle_spec_consistency(artifact: dict, _store: Optional[object], resolver:
         ref = inputs.get(field)
         if not isinstance(ref, str) or not ref:
             continue
-        resolved, new_issues = _resolve(ref, resolver, f"$.inputs.{field}")
+        resolved, new_issues = _resolve(ref, store, f"$.inputs.{field}")
         issues.extend(new_issues)
         if resolved and resolved.get("spec_ref") != bundle_spec:
             issues.append(
@@ -410,19 +424,21 @@ def run_invariants(artifact: dict, spec_for_context: Optional[dict], profile: Pr
     return issues
 
 
-def run_crossrefs(artifact: dict, store: Optional[object], resolver: Optional[ArtifactResolver], profile: ProfileConfig) -> List[ValidationIssue]:
+def run_crossrefs(
+    artifact: dict, store: Optional[ArtifactStore], profile: ProfileConfig
+) -> List[ValidationIssue]:
     rules = _RULES.get(artifact.get("type"), {}).get("crossrefs", [])
     issues: List[ValidationIssue] = []
     for rule in rules:
         if isinstance(rule, CrossRefRule) and profile.is_crossref_enabled(artifact.get("type", ""), rule.name):
-            issues.extend(rule.check(artifact, store, resolver, profile))
+            issues.extend(rule.check(artifact, store, profile))
     return issues
 
 
 RULES = _RULES
 
 __all__ = [
-    "ArtifactResolver",
+    "ArtifactStore",
     "CrossRefRule",
     "InvariantRule",
     "RULES",

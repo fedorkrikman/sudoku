@@ -2,6 +2,7 @@
 
 ## Решение
 - Пакет Validation Center живёт в `src/contracts/` и состоит из шести тонких слоёв: `__init__.py`, загрузчик схем (`loader.py`), описание ошибок и отчётов (`errors.py`), профили строгости (`profiles.py`), реестр правил (`rulebook.py`) и фасад (`validator.py`).
+- Rulebook фиксирует весь набор инвариантов и кросс-ссылок версии v1; проверки кросс-ссылок обращаются только к `artifact_store.load_artifact`.
 - Валидация выполняется только на границах стадий оркестратора: перед записью Spec/CompleteGrid/Verdict/ExportBundle и перед рендером PDF вызываются `assert_valid` или `check_refs`.
 - `validator.validate`/`assert_valid` возвращают/поднимают `ValidationReport`/`ManagedValidationError` и являются единственной точкой входа для пайплайна и служебных скриптов.
 - Профили `dev`, `ci`, `prod` выбираются через `PUZZLE_VALIDATION_PROFILE` или параметр фасада: `dev` сохраняет WARN, `ci` трактует WARN как ERROR, `prod` оставляет лишь ключевые инварианты строгими и понижает спорные проверки до WARN при сохранении строгих кросс-ссылок.

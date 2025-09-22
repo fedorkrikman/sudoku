@@ -3,7 +3,7 @@
 ## 1. Обозримые цели (6–8 недель)
 | Итерация | Цель | Ключевые результаты (KR) | Статус |
 | --- | --- | --- | --- |
-| A | Validation Center v1 | `src/contracts/{loader,rulebook,profiles,errors,validator}.py`; оркестратор вызывает `assert_valid` на входе/выходе; профили dev/ci/prod; скрипты переведены на ЕВЦ | ☑ In progress |
+| A | Validation Center v1 | `src/contracts/{loader,rulebook,profiles,errors,validator}.py`; Rulebook v1 фиксирует инварианты и кросс-ссылки через `artifact_store`; профили dev/ci/prod выбираются из `PUZZLE_VALIDATION_PROFILE`; оркестратор вызывает `assert_valid` и `check_refs`; служебные скрипты используют ЕВЦ | ✅ Done |
 | B | CandidatePuzzle + Aesthetics | Артефакт CandidatePuzzle v1; стадия `carve.clues`; проверка симметрии; solver принимает Candidate | ☐ Planned |
 | C | DifficultyProfile v1 | Артефакт сложности; экспорт оценки; базовый скоринг | ☐ Planned |
 | D | Multitask Engine (uniqueness pool) | Пул процессов; политика fan-out; backpressure; timeouts | ☐ Planned |
