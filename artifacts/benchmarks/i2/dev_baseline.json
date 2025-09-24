@@ -1,0 +1,14 @@
+{
+  "schema_version": "i2.dev.baseline/1",
+  "generated_at": "2025-09-01T00:00:00Z",
+  "ttl_days": 30,
+  "bindings": {
+    "commit_sha": "any",
+    "hw_fingerprint": "any"
+  },
+  "metrics": {
+    "p50_ms": 5.0,
+    "p95_ms": 7.0,
+    "cases": []
+  }
+}

@@ -13,6 +13,8 @@ from contracts import loader, validator
 from ports import generator_port, printer_port, solver_port
 from project_config import get_section
 
+from .shadow_compare import run_shadow_check
+
 _DEFAULT_OUTPUT_DIR = "exports"
 
 
@@ -63,6 +65,14 @@ def _merge_env(overrides: Mapping[str, str] | None = None) -> Dict[str, str]:
     if overrides:
         env.update({str(k): str(v) for k, v in overrides.items()})
     return env
+
+
+def _extract_shadow_hash_salt(env: Mapping[str, str]) -> str | None:
+    for key in ("PUZZLE_SHADOW_HASH_SALT", "SHADOW_HASH_SALT"):
+        value = env.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
 
 
 def _select_puzzle_kind(
@@ -219,6 +229,7 @@ def run_pipeline(
         "state": solver_module.state,
         "decision_source": solver_module.decision_source,
         "fallback_used": solver_module.fallback_used,
+        "sample_rate": solver_module.sample_rate,
     }
     verdict_artifact = _base_envelope(
         "Verdict",
@@ -232,6 +243,28 @@ def run_pipeline(
     verdict_artifact["metrics"]["time_ms"] = _deterministic_duration(verdict_seed, verdict_stage)
     verdict_id = _finalise_and_store(verdict_artifact, "Verdict", current_profile)
     results["verdict_id"] = verdict_id
+
+    shadow_outcome = run_shadow_check(
+        puzzle_kind=selected_puzzle,
+        run_id=run_id,
+        stage="solver:check_uniqueness",
+        seed=verdict_seed,
+        profile=current_profile,
+        module=solver_module,
+        sample_rate=solver_module.sample_rate,
+        hash_salt=_extract_shadow_hash_salt(env_map),
+        spec_artifact=spec_artifact,
+        complete_artifact=complete_artifact,
+        primary_payload=verdict_payload,
+        primary_time_ms=verdict_artifact["metrics"]["time_ms"],
+        env=env_map,
+        options=None,
+    )
+    module_journal["solver"]["shadow_sampled"] = shadow_outcome.event.payload["sampled"]
+    results["shadow"] = {
+        "event": shadow_outcome.event.payload,
+        "counters": shadow_outcome.counters,
+    }
 
     # Stage 4: build export bundle.
     bundle_stage = "stage.export.bundle"

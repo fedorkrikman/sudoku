@@ -1,0 +1,44 @@
+name: perf-gates-i2-dev
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 1'
+
+jobs:
+  perf-i2-dev:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest
+      - name: Execute I2 dev microbenchmark
+        env:
+          PYTHONPATH: src
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from orchestrator.shadow_compare import PerfCase, run_perf_benchmark, write_perf_reports
+
+          payload = json.loads(Path('tests/perf_i2_dev.json').read_text())
+          cases = [PerfCase(**entry) for entry in payload['cases']]
+          metrics = run_perf_benchmark(cases, warmup_runs=1, measure_runs=3)
+          write_perf_reports(metrics=metrics, output_dir=Path('reports'), warmup_runs=1, measure_runs=3)
+          PY
+      - name: Run perf gate assertions
+        env:
+          PYTHONPATH: src
+        run: |
+          pytest tests/perf_i2_dev.py
+      - name: Upload perf reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: perf-i2-dev
+          path: reports/perf_i2_dev.*
