@@ -5,9 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, List, Mapping, MutableMapping, Optional, Tuple
 
+from .delta import Delta, canonicalise_deltas, ensure_delta
 from .state_capsule import StateCapsule
 
-StepHandler = Callable[[StateCapsule, Mapping[str, Any] | None], Tuple[Iterable[Mapping[str, Any]], Mapping[str, Any]]]
+StepHandler = Callable[[StateCapsule, Mapping[str, Any] | None], Tuple[Iterable[Delta | Mapping[str, Any]], Mapping[str, Any]]]
 
 
 @dataclass(frozen=True)
@@ -29,7 +30,7 @@ class StepResult:
     """Container with the outcome of a step execution."""
 
     state: StateCapsule
-    deltas: Tuple[Mapping[str, Any], ...]
+    deltas: Tuple[Delta, ...]
     metrics: Mapping[str, Any]
 
 
@@ -72,16 +73,36 @@ def register_step(step_kind: str, name: str, handler: StepHandler) -> None:
     _STEP_REGISTRY[step_kind][name] = handler
 
 
-def merge_deltas(state: StateCapsule, deltas: Iterable[Mapping[str, Any]]) -> StateCapsule:
+def merge_deltas(state: StateCapsule, deltas: Iterable[Delta | Mapping[str, Any]]) -> Tuple[StateCapsule, Tuple[Delta, ...]]:
     """Merge produced deltas into a new state capsule.
 
-    The scaffold keeps the merge logic trivial – deltas are not applied yet and
-    the state is returned verbatim.  Future iterations will implement
-    deterministic, key-based merging once the delta protocol is formalised.
+    Even though the current Nova scaffold does not yet mutate the solver state,
+    we already enforce the canonical ordering described in the Delta v1
+    contract.  This keeps the deterministic behaviour stable for downstream
+    consumers (trace writers, difficulty scoring) and reduces the surface for
+    subtle bugs once mutations are implemented.
+
+    Parameters
+    ----------
+    state:
+        Immutable :class:`StateCapsule` describing the solver state prior to
+        applying the deltas.  The capsule is returned unchanged – the actual
+        merge logic will be introduced together with the full solver port.
+    deltas:
+        Arbitrary iterable of delta descriptors.  Handlers may yield either
+        :class:`Delta` instances or plain mappings that contain ``op``,
+        ``cell`` and ``digit`` keys.  The helper normalises them and returns a
+        tuple sorted according to the canonical ordering rules
+        (``ELIM`` < ``PLACE``; then by ``cell`` and ``digit``).
+
+    Returns
+    -------
+    Tuple[StateCapsule, Tuple[Delta, ...]]
+        The untouched state capsule and the canonicalised deltas.
     """
 
-    _ = tuple(deltas)  # Force iteration for determinism even without applying.
-    return state
+    canonical = canonicalise_deltas(ensure_delta(delta) for delta in deltas)
+    return state, canonical
 
 
 class StepRunner:
@@ -127,9 +148,10 @@ class StepRunner:
         except NotImplementedError:
             return self._skip(state, step_kind, step_name, reason="not-implemented")
 
-        deltas = tuple(raw_deltas)
-        new_state = merge_deltas(state, deltas)
-        result = StepResult(state=new_state, deltas=deltas, metrics=dict(metrics))
+        new_state, deltas = merge_deltas(state, raw_deltas)
+        metrics_payload: Mapping[str, Any] | None = metrics
+        metrics_dict = dict(metrics_payload) if metrics_payload is not None else {}
+        result = StepResult(state=new_state, deltas=deltas, metrics=metrics_dict)
         self._record(step_kind, step_name, {"status": "ok", **result.metrics})
         return result
 

@@ -6,6 +6,15 @@ import sys
 
 import importlib
 
+from .delta import (
+    Delta,
+    DeltaLike,
+    DeltaOp,
+    DeltaValidationError,
+    canonicalise_deltas,
+    ensure_delta,
+    validate_deltas,
+)
 from .state_capsule import StateCapsule
 from .step_runner import (
     StepHandler,
@@ -16,6 +25,7 @@ from .step_runner import (
     merge_deltas,
     register_step,
 )
+from .trace import SolveTrace, SolveTraceEntry as SolveTraceRecord, TraceValidationError
 
 # Trigger step registration on import.
 from . import phases as _phases  # noqa: F401
@@ -34,6 +44,13 @@ DESCRIPTOR = {
 __all__ = [
     "DESCRIPTOR",
     "StateCapsule",
+    "Delta",
+    "DeltaLike",
+    "DeltaOp",
+    "DeltaValidationError",
+    "canonicalise_deltas",
+    "ensure_delta",
+    "validate_deltas",
     "StepHandler",
     "StepResult",
     "StepRunner",
@@ -41,6 +58,9 @@ __all__ = [
     "StepTraceRecorder",
     "merge_deltas",
     "register_step",
+    "SolveTrace",
+    "SolveTraceRecord",
+    "TraceValidationError",
     "port_check_uniqueness",
 ]
 
