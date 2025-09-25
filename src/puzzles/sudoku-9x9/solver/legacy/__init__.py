@@ -1,25 +1,10 @@
-"""Compatibility alias for the legacy 9x9 solver implementation."""
+"""Legacy solver implementation for the classic 9x9 Sudoku."""
 
 from __future__ import annotations
 
-import importlib
-from types import ModuleType
+from . import _impl as _legacy_module
+from ._impl import *  # noqa: F401,F403 - re-export legacy surface
 
-_LEGACY_MODULE_NAME = "sudoku_solver"
+LEGACY_MODULE = _legacy_module
 
-
-def _load_legacy() -> ModuleType:
-    return importlib.import_module(_LEGACY_MODULE_NAME)
-
-
-_legacy = _load_legacy()
-
-__all__ = [
-    name for name in getattr(_legacy, "__all__", dir(_legacy)) if not name.startswith("_")
-]
-
-for _name in __all__:
-    globals()[_name] = getattr(_legacy, _name)
-
-LEGACY_MODULE = _legacy
-__all__.append("LEGACY_MODULE")
+__all__ = [name for name in globals() if not name.startswith("_")]
