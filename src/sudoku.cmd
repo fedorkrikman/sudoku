@@ -1,1 +1,2 @@
-python make_sudoku_pdf.py  --time 10 --target 15 --margin-cm 2 --gap-cm 2 
+@echo off
+python "%~dp0make_sudoku_pdf.py" --time 10 --target 15 --margin-cm 2 --gap-cm 2

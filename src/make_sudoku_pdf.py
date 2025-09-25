@@ -27,3 +27,6 @@ _spec.loader.exec_module(_module)
 globals().update({name: getattr(_module, name) for name in dir(_module) if not name.startswith("_")})
 
 __all__ = [name for name in globals() if not name.startswith("_")]
+
+if __name__ == "__main__":  # pragma: no cover - CLI passthrough
+    raise SystemExit(_module.main())
