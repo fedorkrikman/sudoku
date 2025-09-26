@@ -1,5 +1,7 @@
 # sudoku
 
+> Verified on 2025-09-26
+
 ## Читайте в первую очередь
 
 - [docs/CODEX_GUIDE.md](docs/CODEX_GUIDE.md)
@@ -110,8 +112,43 @@ JSON, вычисляет `artifact_id` вида `sha256-<hex>` и обеспеч
 ./scripts/smoke_determinism.py
 ```
 
+## How to verify locally
+
+Проверочные скрипты из каталога `tools/ci` прогоняются локально перед PR и в
+CI. Они пишут отчёты в `reports/**` в каноническом JSON (JCS) и выводят краткое
+резюме в stdout.
+
+1. Проверка детерминизма (50 сидов × 3 прогона):
+
+   ```bash
+   python -m tools.ci.determinism_50x3 \
+     --profile dev \
+     --seeds 50 \
+     --runs 3 \
+     --out reports/determinism_50x3/report.json
+   ```
+
+2. Проверка паритета новуса с легаси (выборка 500 пазлов, интервал Уилсона):
+
+   ```bash
+   python -m tools.ci.parity_500_wilson \
+     --profile dev \
+     --n 500 \
+     --out reports/parity_500/report.json
+   ```
+
+Полученные артефакты и статусы PASS/FAIL прикладываются к PR. Дополнительные
+NFR и shadow-отчёты описаны в [docs/STRATEGY.md](docs/STRATEGY.md) и
+`docs/CODEX_GUIDE.md` (раздел «what/why/how-to-verify»).
+
 ## Configuration
 
 Все ключевые параметры генерации головоломок и PDF-сборки собраны в файле
 [`config.toml`](./config.toml). Изменяйте значения в этом файле, чтобы управлять
 поведением скриптов без редактирования исходного кода.
+
+## Compatibility notes
+
+Сводка по политике совместимости и миграциям вынесена в файл
+[`MIGRATIONS.md`](MIGRATIONS.md). Новые несовместимые изменения требуют ADR и
+документирования шагов миграции до релиза.

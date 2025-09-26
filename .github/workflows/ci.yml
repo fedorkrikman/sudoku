@@ -1,0 +1,50 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [dev, test]
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Determinism 50x3
+        run: |
+          python -m tools.ci.determinism_50x3 \
+            --profile ${{ matrix.profile }} \
+            --out reports/determinism_50x3/${{ matrix.profile }}.json
+      - name: Parity 500 Wilson
+        run: |
+          python -m tools.ci.parity_500_wilson \
+            --profile ${{ matrix.profile }} \
+            --out reports/parity_500/${{ matrix.profile }}.json
+      - name: NFR HDR 100
+        continue-on-error: true
+        run: |
+          python -m tools.ci.nfr_hdr_100 \
+            --profile ${{ matrix.profile }} \
+            --out reports/nfr_hdr_100/${{ matrix.profile }}.json
+      - name: Shadow overhead guard
+        run: |
+          python -m tools.ci.shadow_overhead_guard \
+            --profile ${{ matrix.profile }} \
+            --out reports/shadow_overhead/${{ matrix.profile }}.json
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: reports-${{ matrix.profile }}
+          path: reports

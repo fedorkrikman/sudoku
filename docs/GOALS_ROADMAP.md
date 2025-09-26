@@ -1,5 +1,7 @@
 # GOALS_ROADMAP
 
+> Verified on 2025-09-26
+
 ## 1. Обозримые цели (6–8 недель)
 
 | Итерация | Цель | Ключевые результаты (KR) | Acceptance (проверка) | Статус |
@@ -9,6 +11,14 @@
 | C | DifficultyProfile v1 | Артефакт `DifficultyProfile v1` и схема; базовый скоринг; экспорт сложности | Валидация `DifficultyProfile`; экспорт PDF включает оценку; солвер умеет выдавать данные для скоринга | ☐ Planned |
 | D | Multitask Engine (uniqueness pool) | Пул процессов; политика fan-out/backpressure; тайм-ауты; метрики пула | Uniqueness выполняется через пул; стабильный результат; ускорение p95 ≥ X% на локальной машине | ☐ Planned |
 | E | Sudoku-16×16 Spec | `Spec` 16×16 (алфавит 0–9,A–F, блок 4×4); E2E прогон; SLA p95 для uniqueness | Пайплайн 16×16 проходит end-to-end; фиксированные артефакты в `artifacts/`; SLA задокументирован | ☐ Planned |
+
+### Acceptance — текущая итерация
+
+- `python -m tools.ci.determinism_50x3 --profile dev --seeds 50 --runs 3` → PASS.
+- `python -m tools.ci.parity_500_wilson --profile dev --n 500` → PASS, `ci_lower ≥ 0.995`, `critical = 0`, `major ≤ 3`.
+- `python -m tools.ci.nfr_hdr_100 --profile dev` → отчёт `reports/nfr_hdr_100/report.json` с guardrail-флагом.
+- `python -m tools.ci.shadow_overhead_guard --profile prod` → отчёт `reports/shadow_overhead/report.json` с action ≠ `raise`.
+- CHANGELOG содержит запись «docs: mini-repair + strategy anchor» с ссылками на отчёты.
 
 ## 2. Долговременные принципы (опоры)
 - Контракты важнее реализаций: изменения контрактов фиксируются ADR.

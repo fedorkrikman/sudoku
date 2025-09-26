@@ -1,8 +1,9 @@
 # Shadowlog v1 schema
 
-Shadowlog events capture the result of running a shadow solver execution next
-to the primary Sudoku pipeline.  Events are emitted as JSON objects with the
-following required fields:
+> Verified on 2025-09-26
+
+Shadowlog events фиксируют тени solver-исполнения рядом с основным Sudoku
+конвейером. События испускаются в JSON со следующими обязательными полями:
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -39,6 +40,30 @@ following required fields:
 | ``details`` | object\|null | Additional information (e.g. mismatch summary or traceback). |
 | ``event_id`` | string | 8 hex characters computed from the canonical JSON without ``event_id``. |
 
-Optional keys such as ``details`` are omitted when not needed.  Consumers should
-not rely on field ordering and must treat unknown keys as forward-compatible
-extensions.
+Опциональные поля (например, ``details``) опускаются, когда не нужны. Порядок
+ключей не фиксируется, потребители обязаны поддерживать расширение схемы.
+
+## Normalisation for comparisons
+
+Для сравнения логов в `tools/ci.determinism_50x3` и `tools/ci.shadow_overhead_guard`
+применяется нормализация:
+
+- игнорируются поля: `timestamp`, `ts`, `host`, `host_id`, `pid`, `duration_ms`,
+  `time_ms`, `perf_delta_ms`, `perf_delta_pct`, `hw_fingerprint`, `event_id`;
+- записи сортируются по `op_seq` (если присутствует) либо по `u64_digest_trunc`;
+- числовые поля форматируются с точностью до 3 знаков после запятой;
+- строки нормализуются в Unicode NFC.
+
+## Severity map
+
+| Severity | Назначение | Пример |
+| --- | --- | --- |
+| CRITICAL | несовпадение решённой сетки или статус `invalid_input` | `category="C1"`, `verdict_status="invalid_input"` |
+| MAJOR | расхождение кандидатов, тайм-ауты, auto-fallback | `category="M2"`, `fallback_used=true` |
+| MINOR | допустимые расхождения производительности | `category="OK"`, `perf_delta_ms > 0` |
+
+## Storage
+
+- Логи пишутся в `logs/shadow/<run_id>-<suffix>.json` (каноническая JSON-сериализация).
+- Для сравнений используется JCS (`json.dumps(..., sort_keys=True, separators)`),
+  чтобы побайтно сверять события.
