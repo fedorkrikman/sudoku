@@ -35,7 +35,7 @@ def aggregate(paths: Iterable[Path], *, top: int = 5) -> Mapping[str, object]:
 
     summary = {
         "total_events": samples,
-        "severity": severities,
+        "severity": dict(severities),
         "top_kinds": kinds.most_common(top),
     }
     # Canonicalise summary for deterministic snapshots
