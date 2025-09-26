@@ -19,3 +19,18 @@
 - Добавлен immutable acceptance-корпус `data/acceptance/acceptance_corpus_9x9_v1.json` и генератор.
 - Внесены CI-скрипты `tools/ci/*` и workflow'ы для determinism/parity/NFR/shadow отчётов.
 - Добавлен `.markdownlint.json` и doc-линт в `docs` workflow.
+**Кратко (RU):** Журнал изменений проекта Sudoku с акцентом на документы стратегии и эстетики.
+**Summary (EN):** Change log for the Sudoku project, highlighting updates to strategy and aesthetics documentation.
+
+# Changelog
+
+## 2024-05-07
+
+### Added
+- Создан документ docs/PUZZLE_AESTHETICS_PLAYBOOK.md с черновыми осями оценки и метриками.
+
+### Changed
+- Обновлена стратегия (docs/STRATEGY.md): добавлены пять целей владельца и инварианты детерминизма диспетчера.
+
+### Notes
+- README.md дополнен ссылками на стратегию и плейбук для быстрого доступа.
