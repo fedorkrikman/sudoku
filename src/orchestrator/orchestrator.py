@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Mapping, Optional
 
 from artifacts import artifact_store
 from contracts import loader, validator
+from feature_flags import is_shadow_mode_enabled
 from ports import generator_port, printer_port, solver_port
 from project_config import get_section
 
@@ -72,6 +73,24 @@ def _extract_shadow_hash_salt(env: Mapping[str, str]) -> str | None:
         value = env.get(key)
         if isinstance(value, str) and value:
             return value
+    return None
+
+
+def _extract_shadow_rate_override(env: Mapping[str, str]) -> float | None:
+    for key in (
+        "PUZZLE_SHADOW_RATE",
+        "PUZZLE_SHADOW_SAMPLE_RATE",
+        "SHADOW_RATE",
+        "SHADOW_SAMPLE_RATE",
+    ):
+        value = env.get(key)
+        if value is None:
+            continue
+        try:
+            rate = float(value)
+        except (TypeError, ValueError):
+            continue
+        return max(0.0, min(1.0, rate))
     return None
 
 
@@ -244,27 +263,43 @@ def run_pipeline(
     verdict_id = _finalise_and_store(verdict_artifact, "Verdict", current_profile)
     results["verdict_id"] = verdict_id
 
-    shadow_outcome = run_shadow_check(
-        puzzle_kind=selected_puzzle,
-        run_id=run_id,
-        stage="solver:check_uniqueness",
-        seed=verdict_seed,
-        profile=current_profile,
-        module=solver_module,
-        sample_rate=solver_module.sample_rate,
-        hash_salt=_extract_shadow_hash_salt(env_map),
-        spec_artifact=spec_artifact,
-        complete_artifact=complete_artifact,
-        primary_payload=verdict_payload,
-        primary_time_ms=verdict_artifact["metrics"]["time_ms"],
-        env=env_map,
-        options=None,
-    )
-    module_journal["solver"]["shadow_sampled"] = shadow_outcome.event.payload["sampled"]
-    results["shadow"] = {
-        "event": shadow_outcome.event.payload,
-        "counters": shadow_outcome.counters,
-    }
+    shadow_enabled = is_shadow_mode_enabled(env_map)
+    shadow_rate = _extract_shadow_rate_override(env_map)
+    effective_rate = shadow_rate if shadow_rate is not None else solver_module.sample_rate
+    module_journal["solver"]["sample_rate"] = effective_rate
+
+    if shadow_enabled:
+        shadow_outcome = run_shadow_check(
+            puzzle_kind=selected_puzzle,
+            run_id=run_id,
+            stage="solver:check_uniqueness",
+            seed=verdict_seed,
+            profile=current_profile,
+            module=solver_module,
+            sample_rate=effective_rate,
+            hash_salt=_extract_shadow_hash_salt(env_map),
+            spec_artifact=spec_artifact,
+            complete_artifact=complete_artifact,
+            primary_payload=verdict_payload,
+            primary_time_ms=verdict_artifact["metrics"]["time_ms"],
+            env=env_map,
+            options=None,
+        )
+        module_journal["solver"]["shadow_sampled"] = shadow_outcome.event.payload.get("sampled", False)
+        results["shadow"] = {
+            "event": shadow_outcome.event.payload,
+            "counters": shadow_outcome.counters,
+        }
+    else:
+        module_journal["solver"]["shadow_sampled"] = False
+        results["shadow"] = {
+            "event": {
+                "event": "shadow_compare.disabled",
+                "sampled": False,
+                "reason": "feature_disabled",
+            },
+            "counters": {},
+        }
 
     # Stage 4: build export bundle.
     bundle_stage = "stage.export.bundle"
