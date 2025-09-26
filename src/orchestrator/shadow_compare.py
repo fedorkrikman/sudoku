@@ -1,204 +1,99 @@
-"""Shadow compare orchestration utilities for solver pipelines.
-
-This module provides sampling, execution and comparison helpers that enable
-shadow runs between the primary solver implementation (``novus`` during the
-rollout) and the reference ``legacy`` implementation.  The implementation
-follows ADR "Shadow sampling & solved_ref" and exposes a minimal API for the
-orchestrator as well as unit tests.
-"""
+"""Shadow comparison runtime helpers."""
 
 from __future__ import annotations
 
-import dataclasses
-import hashlib
-import json
-import os
-import socket
-import statistics
-import subprocess
 import time
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Any, Callable, Mapping, MutableMapping, Tuple
 
-from orchestrator.router import ResolvedModule, resolve
+from contracts.envelope import Envelope, envelope_to_dict, make_envelope
+from contracts.jsoncanon import jcs_sha256
+
+from . import log, sampling
+from .router import ResolvedModule, resolve
 from ports._loader import load_module
 from ports._utils import build_env
 
+__all__ = [
+    "ShadowRun",
+    "ShadowTask",
+    "ShadowResult",
+    "GuardrailContext",
+    "classify_mismatch",
+    "run_with_shadow",
+    "run_shadow_check",
+    "ShadowOutcome",
+    "ShadowEvent",
+]
 
-# ---------------------------------------------------------------------------
-# Data structures and public surface
-# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ShadowRun:
+    verdict: str
+    result_artifact: Any
+    metrics: Mapping[str, Any] | None = None
+    extra: Mapping[str, Any] | None = None
 
 
-@dataclass
-class SampleDecision:
-    """Describes whether a shadow sample should be executed."""
+@dataclass(frozen=True)
+class GuardrailContext:
+    severity: str
+    kind: str
+    timings: Mapping[str, float]
+    overhead_pct: float
 
+
+@dataclass(frozen=True)
+class ShadowTask:
+    envelope: Envelope
+    run_id: str
+    stage: str
+    seed: str
+    module_id: str
+    profile: str
+    sample_rate: float
+    hash_salt: str | None
+    baseline_runner: Callable[[], ShadowRun]
+    candidate_runner: Callable[[], ShadowRun]
+    guardrail: Callable[[GuardrailContext], bool] | None = None
+    classifier: Callable[[ShadowRun, ShadowRun], Tuple[str, str]] | None = None
+    metadata: Mapping[str, Any] | None = None
+    allow_fallback: bool = True
+
+
+@dataclass(frozen=True)
+class ShadowResult:
     sampled: bool
-    u64_digest_trunc: str
-    hash_salt_set: bool
+    severity: str
+    kind: str
+    baseline_digest: str | None
+    candidate_digest: str
+    returned: ShadowRun
+    baseline: ShadowRun | None
+    candidate: ShadowRun
+    fallback_used: bool
+    event_path: Path | None
+    timings: Mapping[str, float]
+    event: Mapping[str, Any]
 
 
-@dataclass
+@dataclass(frozen=True)
 class ShadowEvent:
-    """Structured shadowlog event (schema ``shadowlog/1``)."""
-
-    payload: Dict[str, Any]
+    payload: Mapping[str, Any]
 
 
-@dataclass
-class ShadowState:
-    """Aggregated state for the current interpreter process."""
-
-    events: List[ShadowEvent] = field(default_factory=list)
-    counters: Dict[str, int] = field(default_factory=dict)
-
-
-@dataclass
+@dataclass(frozen=True)
 class ShadowOutcome:
-    """Result tuple returned by :func:`run_shadow_check`."""
-
     event: ShadowEvent
-    counters: Dict[str, int]
+    counters: Mapping[str, int]
 
 
-_STATE = ShadowState()
-
-
-# ---------------------------------------------------------------------------
-# Helpers for deterministic sampling and hashing
-# ---------------------------------------------------------------------------
-
-
-def reset_state() -> None:
-    """Reset the in-memory state (used by tests)."""
-
-    _STATE.events.clear()
-    _STATE.counters.clear()
-
-
-def get_state() -> ShadowState:
-    """Return a copy of the accumulated state for inspection."""
-
-    return ShadowState(events=list(_STATE.events), counters=dict(_STATE.counters))
-
-
-def _seed_to_decimal(seed: str) -> str:
-    try:
-        return str(int(seed, 16))
-    except ValueError:
-        return str(int(hashlib.sha256(seed.encode("utf-8")).hexdigest()[:12], 16))
-
-
-def compute_sample_decision(
-    *,
-    run_id: str,
-    stage: str,
-    seed: str,
-    module_id: str,
-    sample_rate: float,
-    hash_salt: str | None,
-) -> SampleDecision:
-    """Decide whether to sample a run according to the deterministic policy."""
-
-    material = "".join([
-        hash_salt or "",
-        run_id,
-        stage,
-        _seed_to_decimal(seed),
-        module_id,
-    ])
-    digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
-    u64 = int(digest[:16], 16)
-    sampled = sample_rate >= 1.0 or (sample_rate > 0 and u64 / 2**64 < sample_rate)
-    return SampleDecision(sampled=sampled, u64_digest_trunc=digest[:16], hash_salt_set=bool(hash_salt))
-
-
-# ---------------------------------------------------------------------------
-# Git / environment fingerprint helpers
-# ---------------------------------------------------------------------------
-
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
-def _current_commit_sha() -> str:
-    try:
-        output = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=_repo_root())
-    except Exception:  # pragma: no cover - defensive guard
-        return "none"
-    commit = output.decode().strip()
-    try:
-        status = subprocess.check_output(["git", "status", "--porcelain"], cwd=_repo_root())
-    except Exception:  # pragma: no cover - defensive guard
-        status = b""
-    if status.strip():
-        commit = f"{commit}+dirty"
-    return commit
-
-
-def _cpu_model() -> str:
-    cpuinfo = Path("/proc/cpuinfo")
-    if cpuinfo.exists():
-        for line in cpuinfo.read_text().splitlines():
-            if line.lower().startswith("model name"):
-                return line.split(":", 1)[1].strip()
-    return os.environ.get("CPU_MODEL", "unknown")
-
-
-def _cpu_mhz() -> float:
-    cpuinfo = Path("/proc/cpuinfo")
-    if cpuinfo.exists():
-        for line in cpuinfo.read_text().splitlines():
-            if line.lower().startswith("cpu mhz"):
-                try:
-                    return float(line.split(":", 1)[1].strip())
-                except ValueError:
-                    continue
-    return 0.0
-
-
-def _mem_total_gb() -> float:
-    meminfo = Path("/proc/meminfo")
-    if meminfo.exists():
-        for line in meminfo.read_text().splitlines():
-            if line.lower().startswith("memtotal"):
-                parts = line.split()
-                if len(parts) >= 2:
-                    try:
-                        kb = float(parts[1])
-                        return round(kb / (1024 * 1024), 2)
-                    except ValueError:
-                        break
-    return 0.0
-
-
-def _hardware_fingerprint() -> str:
-    cpu_model = _cpu_model()
-    arch = os.uname().machine
-    cores = os.cpu_count() or 1
-    mhz = _cpu_mhz()
-    mem = _mem_total_gb()
-    canonical = json.dumps(
-        {
-            "cpu_model": cpu_model,
-            "arch": arch,
-            "cores": cores,
-            "base_mhz": round(mhz, 2),
-            "mem_gb": mem,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]
-
-
-# ---------------------------------------------------------------------------
-# Shadow execution helpers
-# ---------------------------------------------------------------------------
+def _execute_runner(runner: Callable[[], ShadowRun]) -> tuple[ShadowRun, float]:
+    start = time.perf_counter()
+    result = runner()
+    duration_ms = (time.perf_counter() - start) * 1000
+    return result, duration_ms
 
 
 def _load_solver(resolved: ResolvedModule):
@@ -209,12 +104,13 @@ def _load_solver(resolved: ResolvedModule):
 
 def _invoke_solver(
     resolved: ResolvedModule,
-    spec: Dict[str, Any],
-    complete: Dict[str, Any],
-    options: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    spec: Mapping[str, Any],
+    complete: Mapping[str, Any],
+    *,
+    options: Mapping[str, Any] | None = None,
+) -> Mapping[str, Any]:
     handler = _load_solver(resolved)
-    return handler(spec, complete, options=options)
+    return handler(dict(spec), dict(complete), options=options)
 
 
 def _resolve_counterpart(
@@ -223,141 +119,180 @@ def _resolve_counterpart(
     puzzle_kind: str,
     profile: str,
     env: Mapping[str, str],
-) -> Optional[ResolvedModule]:
-    counterpart = "legacy" if primary.impl_id != "legacy" else "novus"
-    if counterpart == primary.impl_id:
+) -> ResolvedModule | None:
+    counterpart_impl = "legacy" if primary.impl_id != "legacy" else "novus"
+    if counterpart_impl == primary.impl_id:
         return None
     env_map = build_env(env)
-    env_map["PUZZLE_SOLVER_IMPL"] = counterpart
-    if counterpart == "legacy":
-        env_map.setdefault("PUZZLE_SOLVER_STATE", "default")
-    else:
-        env_map.setdefault("PUZZLE_SOLVER_STATE", "shadow")
+    env_map["PUZZLE_SOLVER_IMPL"] = counterpart_impl
+    env_map.setdefault("PUZZLE_SOLVER_STATE", "shadow")
     return resolve(puzzle_kind, "solver", profile, env_map)
 
 
-def _verdict_status(payload: Mapping[str, Any]) -> str | None:
+def classify_mismatch(baseline: ShadowRun, candidate: ShadowRun) -> tuple[str, str]:
+    if baseline.verdict != candidate.verdict:
+        return "nondeterminism", "CRITICAL"
+
+    if baseline.result_artifact == candidate.result_artifact:
+        return "none", "NONE"
+
+    base_payload = baseline.result_artifact
+    cand_payload = candidate.result_artifact
+
+    if isinstance(base_payload, Mapping) and isinstance(cand_payload, Mapping):
+        if base_payload.get("grid") != cand_payload.get("grid"):
+            return "value", "CRITICAL"
+        if base_payload.get("candidates") != cand_payload.get("candidates"):
+            return "candidates", "MAJOR"
+        return "trace", "MINOR"
+
+    return "value", "MAJOR"
+
+
+def _build_event(
+    *,
+    task: ShadowTask,
+    severity: str,
+    kind: str,
+    baseline: ShadowRun,
+    candidate: ShadowRun,
+    baseline_digest: str,
+    candidate_digest: str,
+    timings: Mapping[str, float],
+) -> Mapping[str, Any]:
+    payload: MutableMapping[str, Any] = {
+        "event": "shadow_compare.completed",
+        "envelope": envelope_to_dict(task.envelope),
+        "run_id": task.run_id,
+        "stage": task.stage,
+        "seed": task.seed,
+        "module_id": task.module_id,
+        "profile": task.profile,
+        "sample_rate": task.sample_rate,
+        "severity": severity,
+        "kind": kind,
+        "digests": {
+            "baseline": baseline_digest,
+            "candidate": candidate_digest,
+        },
+        "verdict": {
+            "baseline": baseline.verdict,
+            "candidate": candidate.verdict,
+        },
+        "timings": {
+            "baseline_ms": round(timings.get("baseline_ms", 0.0), 3),
+            "candidate_ms": round(timings.get("candidate_ms", 0.0), 3),
+            "delta_ms": round(timings.get("delta_ms", 0.0), 3),
+            "overhead_pct": round(timings.get("overhead_pct", 0.0), 5),
+        },
+    }
+    if task.metadata:
+        payload["metadata"] = dict(task.metadata)
+    return payload
+
+
+def run_with_shadow(task: ShadowTask) -> ShadowResult:
+    candidate, cand_ms = _execute_runner(task.candidate_runner)
+    candidate_digest = jcs_sha256(candidate.result_artifact)
+
+    sampled = sampling.hit(
+        task.hash_salt,
+        task.run_id,
+        task.stage,
+        task.seed,
+        task.module_id,
+        task.sample_rate,
+    )
+
+    if not sampled:
+        timings = {"candidate_ms": cand_ms, "baseline_ms": 0.0, "delta_ms": cand_ms, "overhead_pct": 0.0}
+        event_payload: Mapping[str, Any] = {
+            "event": "shadow_compare.skipped",
+            "run_id": task.run_id,
+            "stage": task.stage,
+            "seed": task.seed,
+            "module_id": task.module_id,
+            "profile": task.profile,
+            "sample_rate": task.sample_rate,
+            "severity": "NONE",
+            "kind": "none",
+            "sampled": False,
+            "digests": {"baseline": None, "candidate": candidate_digest},
+            "timings": timings,
+        }
+        return ShadowResult(
+            sampled=False,
+            severity="NONE",
+            kind="none",
+            baseline_digest=None,
+            candidate_digest=candidate_digest,
+            returned=candidate,
+            baseline=None,
+            candidate=candidate,
+            fallback_used=False,
+            event_path=None,
+            timings=timings,
+            event=event_payload,
+        )
+
+    baseline, base_ms = _execute_runner(task.baseline_runner)
+    baseline_digest = jcs_sha256(baseline.result_artifact)
+
+    classifier = task.classifier or classify_mismatch
+    kind, severity = classifier(baseline, candidate)
+
+    delta_ms = cand_ms - base_ms
+    overhead_pct = 0.0 if base_ms <= 0 else delta_ms / base_ms
+    timings = {
+        "baseline_ms": base_ms,
+        "candidate_ms": cand_ms,
+        "delta_ms": delta_ms,
+        "overhead_pct": overhead_pct,
+    }
+
+    event_payload = _build_event(
+        task=task,
+        severity=severity,
+        kind=kind,
+        baseline=baseline,
+        candidate=candidate,
+        baseline_digest=baseline_digest,
+        candidate_digest=candidate_digest,
+        timings=timings,
+    )
+    event_path = log.append_event(event_payload)
+
+    fallback = False
+    if task.guardrail is not None:
+        fallback = task.guardrail(GuardrailContext(severity=severity, kind=kind, timings=timings, overhead_pct=overhead_pct))
+    elif severity == "CRITICAL" and task.allow_fallback:
+        fallback = True
+
+    returned = baseline if fallback else candidate
+
+    return ShadowResult(
+        sampled=True,
+        severity=severity,
+        kind=kind,
+        baseline_digest=baseline_digest,
+        candidate_digest=candidate_digest,
+        returned=returned,
+        baseline=baseline,
+        candidate=candidate,
+        fallback_used=fallback,
+        event_path=event_path,
+        timings=timings,
+        event=event_payload,
+    )
+
+
+def _verdict_from_payload(payload: Mapping[str, Any]) -> str:
     unique = payload.get("unique")
     if unique is True:
         return "ok"
     if unique is False:
         return "unsolved"
-    return None
-
-
-def _compare_payloads(
-    primary: Mapping[str, Any],
-    shadow: Mapping[str, Any],
-    *,
-    solved_ref_digest: str | None,
-) -> Tuple[str, Dict[str, Any]]:
-    """Return (category, details) for the comparison outcome."""
-
-    primary_unique = primary.get("unique")
-    shadow_unique = shadow.get("unique")
-    if primary_unique != shadow_unique:
-        return "C1", {
-            "message": "unique flag mismatch",
-            "primary_unique": primary_unique,
-            "shadow_unique": shadow_unique,
-        }
-
-    if primary_unique and shadow_unique:
-        p_ref = primary.get("solved_ref")
-        s_ref = shadow.get("solved_ref")
-        if solved_ref_digest and p_ref and s_ref and (p_ref != solved_ref_digest or s_ref != solved_ref_digest):
-            return "C2", {
-                "message": "solved grid reference mismatch",
-                "primary_ref": p_ref,
-                "shadow_ref": s_ref,
-                "expected": solved_ref_digest,
-            }
-
-    return "OK", {}
-
-
-def _update_counters(category: str) -> Dict[str, int]:
-    counters: Dict[str, int] = {}
-    if category == "OK":
-        counters["shadow_ok"] = 1
-    elif category.startswith("C"):
-        counters[f"shadow_mismatch_{category}"] = 1
-    elif category.startswith("E"):
-        counters[f"shadow_error_{category}"] = 1
-    elif category.startswith("M"):
-        counters[f"shadow_mismatch_{category}"] = 1
-    else:
-        counters["shadow_info"] = 1
-    for key, value in counters.items():
-        _STATE.counters[key] = _STATE.counters.get(key, 0) + value
-    return counters
-
-
-def _compute_event_id(payload: Dict[str, Any]) -> str:
-    canonical = json.dumps(
-        {k: payload[k] for k in sorted(payload) if k != "event_id"},
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:8]
-
-
-def _deterministic_timestamp(decision: SampleDecision) -> str:
-    anchor = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    offset_ms = int(decision.u64_digest_trunc, 16) % (24 * 60 * 60 * 1000)
-    moment = anchor + timedelta(milliseconds=offset_ms)
-    return moment.isoformat(timespec="milliseconds")
-
-
-def _base_event(
-    *,
-    decision: SampleDecision,
-    run_id: str,
-    stage: str,
-    module: ResolvedModule,
-    profile: str,
-    sample_rate: float,
-    seed: str,
-    solved_ref_digest: str | None,
-    time_ms: int,
-    verdict_unique: bool | None,
-    verdict_status: str | None,
-) -> Dict[str, Any]:
-    host_id = socket.gethostname().split(".")[0]
-    payload = {
-        "schema_ver": "shadowlog/1",
-        "ts": _deterministic_timestamp(decision),
-        "profile": profile,
-        "stage": stage,
-        "module_id": module.module_id,
-        "impl_id": module.impl_id,
-        "decision_source": module.decision_source,
-        "sampled": decision.sampled,
-        "sample_rate": float(sample_rate),
-        "hash_salt_set": decision.hash_salt_set,
-        "run_id": run_id,
-        "seed": seed,
-        "u64_digest_trunc": decision.u64_digest_trunc,
-        "verdict_unique": verdict_unique,
-        "verdict_status": verdict_status,
-        "category": "OK",
-        "fallback_used": module.fallback_used,
-        "time_ms": time_ms,
-        "commit_sha": _current_commit_sha(),
-        "baseline_sha": "none",
-        "baseline_id": "none",
-        "solved_ref_digest": solved_ref_digest or "none",
-        "time_ms_baseline": None,
-        "perf_delta_ms": None,
-        "perf_delta_pct": None,
-        "host_id": host_id,
-        "cpu_info": {"model": _cpu_model()},
-        "hw_fingerprint": _hardware_fingerprint(),
-        "warmup_runs": None,
-        "measure_runs": None,
-        "details": None,
-    }
-    return payload
+    return "unknown"
 
 
 def run_shadow_check(
@@ -375,200 +310,61 @@ def run_shadow_check(
     primary_payload: Mapping[str, Any],
     primary_time_ms: int,
     env: Mapping[str, str] | None = None,
-    options: Optional[Dict[str, Any]] = None,
+    options: Mapping[str, Any] | None = None,
 ) -> ShadowOutcome:
-    """Execute the shadow comparison flow and record a shadowlog event."""
+    env = env or {}
 
-    decision = compute_sample_decision(
+    candidate_run = ShadowRun(
+        verdict=_verdict_from_payload(primary_payload),
+        result_artifact=dict(primary_payload),
+        metrics={"time_ms": primary_time_ms},
+    )
+
+    def candidate_runner() -> ShadowRun:
+        return candidate_run
+
+    def baseline_runner() -> ShadowRun:
+        counterpart = _resolve_counterpart(
+            primary=module,
+            puzzle_kind=puzzle_kind,
+            profile=profile,
+            env=env,
+        )
+        if counterpart is None:
+            return candidate_run
+        payload = _invoke_solver(counterpart, spec_artifact, complete_artifact, options=options)
+        return ShadowRun(verdict=_verdict_from_payload(payload), result_artifact=payload)
+
+    envelope = make_envelope(
+        profile=profile,
+        solver_id=module.module_id,
+        commit_sha="unknown",
+        baseline_sha=None,
+        run_id=run_id,
+    )
+
+    task = ShadowTask(
+        envelope=envelope,
         run_id=run_id,
         stage=stage,
         seed=seed,
         module_id=module.module_id,
-        sample_rate=sample_rate,
-        hash_salt=hash_salt,
-    )
-
-    solved_ref_digest = complete_artifact.get("artifact_id")
-    verdict_unique = primary_payload.get("unique") if isinstance(primary_payload.get("unique"), bool) else None
-    verdict_status = _verdict_status(primary_payload)
-    event_payload = _base_event(
-        decision=decision,
-        run_id=run_id,
-        stage=stage,
-        module=module,
         profile=profile,
         sample_rate=sample_rate,
-        seed=seed,
-        solved_ref_digest=solved_ref_digest,
-        time_ms=primary_time_ms,
-        verdict_unique=verdict_unique,
-        verdict_status=verdict_status,
+        hash_salt=hash_salt,
+        baseline_runner=baseline_runner,
+        candidate_runner=candidate_runner,
+        metadata={"puzzle_kind": puzzle_kind},
     )
 
-    counters_delta: Dict[str, int]
-    if not decision.sampled:
-        counters_delta = _update_counters("shadow_info")
+    result = run_with_shadow(task)
+
+    counters: MutableMapping[str, int] = {}
+    if not result.sampled:
+        counters["shadow_skipped"] = 1
+    elif result.severity == "NONE":
+        counters["shadow_ok"] = 1
     else:
-        start = time.perf_counter()
-        try:
-            counterpart = _resolve_counterpart(
-                primary=module,
-                puzzle_kind=puzzle_kind,
-                profile=profile,
-                env=env or {},
-            )
-            if counterpart is None:
-                shadow_payload = dict(primary_payload)
-            else:
-                shadow_payload = _invoke_solver(counterpart, dict(spec_artifact), dict(complete_artifact), options=options)
-        except Exception as exc:  # pragma: no cover - exercised via dedicated tests
-            duration_ms = int((time.perf_counter() - start) * 1000)
-            event_payload["category"] = "E1"
-            event_payload["details"] = {
-                "error": type(exc).__name__,
-                "message": str(exc),
-            }
-            event_payload["time_ms"] = primary_time_ms
-            event_payload["perf_delta_ms"] = duration_ms
-            counters_delta = _update_counters("E1")
-        else:
-            duration_ms = int((time.perf_counter() - start) * 1000)
-            category, details = _compare_payloads(
-                primary_payload,
-                shadow_payload,
-                solved_ref_digest=solved_ref_digest,
-            )
-            event_payload["category"] = category
-            event_payload["details"] = details or None
-            event_payload["perf_delta_ms"] = duration_ms
-            event_payload["perf_delta_pct"] = None
-            counters_delta = _update_counters(category)
+        counters[f"shadow_{result.severity.lower()}_{result.kind}"] = 1
 
-    event_payload["event_id"] = _compute_event_id(event_payload)
-    event = ShadowEvent(payload=event_payload)
-    _STATE.events.append(event)
-    return ShadowOutcome(event=event, counters=counters_delta)
-
-
-# ---------------------------------------------------------------------------
-# Performance micro-benchmark helpers (I2 scenario)
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class PerfCase:
-    name: str
-    grid: str
-    difficulty: str
-
-
-@dataclass
-class PerfMetrics:
-    name: str
-    median_ms: float
-    samples: List[float]
-
-
-def _run_solver_case(grid: str, spec: Mapping[str, Any]) -> None:
-    module_env = {"grid": grid, "artifact_id": "sha256-dummy"}
-    from sudoku_solver import port_check_uniqueness
-
-    port_check_uniqueness(spec, module_env)
-
-
-def _ensure_affinity() -> None:
-    try:
-        os.sched_setaffinity(0, {0})
-    except AttributeError:  # pragma: no cover - unsupported platform
-        pass
-    except PermissionError:  # pragma: no cover - containers without CAP_SYS_NICE
-        pass
-
-
-def _spec_payload() -> Dict[str, Any]:
-    return {
-        "name": "sudoku-9x9",
-        "size": 9,
-        "block": {"rows": 3, "cols": 3},
-        "alphabet": list("123456789"),
-        "limits": {"solver_timeout_ms": 1000},
-    }
-
-
-def run_perf_benchmark(
-    cases: Iterable[PerfCase],
-    *,
-    warmup_runs: int = 1,
-    measure_runs: int = 3,
-) -> List[PerfMetrics]:
-    """Execute a deterministic micro-benchmark over the provided cases."""
-
-    _ensure_affinity()
-    spec = _spec_payload()
-    metrics: List[PerfMetrics] = []
-    for case in cases:
-        for _ in range(warmup_runs):
-            _run_solver_case(case.grid, spec)
-        samples: List[float] = []
-        for _ in range(measure_runs):
-            start = time.perf_counter()
-            _run_solver_case(case.grid, spec)
-            samples.append((time.perf_counter() - start) * 1000)
-        median_value = statistics.median(samples)
-        metrics.append(PerfMetrics(name=case.name, median_ms=median_value, samples=samples))
-    return metrics
-
-
-def write_perf_reports(
-    *,
-    metrics: List[PerfMetrics],
-    output_dir: Path,
-    warmup_runs: int,
-    measure_runs: int,
-) -> Tuple[Path, Path]:
-    """Write JSON and Markdown summaries for the benchmark results."""
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    rows = [
-        {
-            "name": metric.name,
-            "median_ms": round(metric.median_ms, 4),
-            "samples_ms": [round(sample, 4) for sample in metric.samples],
-        }
-        for metric in metrics
-    ]
-    meta = {
-        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "commit_sha": _current_commit_sha(),
-        "hw_fingerprint": _hardware_fingerprint(),
-        "warmup_runs": warmup_runs,
-        "measure_runs": measure_runs,
-    }
-    json_payload = {"meta": meta, "cases": rows}
-    json_path = output_dir / "perf_i2_dev.json"
-    json_path.write_text(json.dumps(json_payload, indent=2))
-
-    md_lines = ["# I2 microbenchmark (dev)", "", "| Case | Median (ms) | Samples (ms) |", "| --- | ---: | --- |"]
-    for row in rows:
-        samples = ", ".join(f"{value:.4f}" for value in row["samples_ms"])
-        md_lines.append(f"| {row['name']} | {row['median_ms']:.4f} | {samples} |")
-    md_path = output_dir / "perf_i2_dev.md"
-    md_path.write_text("\n".join(md_lines) + "\n")
-    return json_path, md_path
-
-
-__all__ = [
-    "SampleDecision",
-    "ShadowOutcome",
-    "ShadowEvent",
-    "ShadowState",
-    "compute_sample_decision",
-    "get_state",
-    "reset_state",
-    "run_shadow_check",
-    "PerfCase",
-    "PerfMetrics",
-    "run_perf_benchmark",
-    "write_perf_reports",
-]
-
+    return ShadowOutcome(event=ShadowEvent(payload=result.event), counters=counters)

@@ -100,3 +100,13 @@
 
 Используем `artifact_store.canonicalize` либо `json.dumps(..., sort_keys=True,
 separators=(",", ":"), ensure_ascii=False)` для отчётов и артефактов.
+
+### Shadow-mode dev-loop
+
+- Включить тень локально: `export PUZZLE_SOLVER_STATE=shadow` и установить
+  `PUZZLE_SOLVER_SAMPLE_RATE=0.05` (по умолчанию 0.0).
+- Для единичного прогона используйте `python -m tools.cli.orchestrate run-one --seed <hex> [--puzzle sudoku-9x9]`.
+- Для серии сидов: `python -m tools.cli.orchestrate batch-seeds seeds.txt`.
+- Сводку по логам собирает `python -m tools.cli.orchestrate report-shadow logs/shadow --top 10`.
+- Ключевые метрики: `severity`, `kind`, `timings.overhead_pct`. Если `overhead_pct`
+  стабильно > 0.05 — уменьшить `sample_rate` или проверить `policy.shadow.recommend_action`.

@@ -1,0 +1,1 @@
+{"event":"shadow_compare.completed","severity":"MINOR","kind":"trace","sample_rate":0.01,"digests":{"baseline":"sha256-deadbeef","candidate":"sha256-deadbeef"},"timings":{"baseline_ms":10.0,"candidate_ms":10.5,"delta_ms":0.5,"overhead_pct":0.05}}

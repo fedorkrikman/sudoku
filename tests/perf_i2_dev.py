@@ -1,37 +1,22 @@
-"""Micro-benchmark smoke coverage for the I2 performance scenario."""
+"""Smoke tests for shadow mismatch report aggregation."""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from orchestrator.shadow_compare import PerfCase, run_perf_benchmark, write_perf_reports
+from tools.reports.mismatch_report import aggregate
 
 
-def _load_cases() -> list[PerfCase]:
-    payload = json.loads(Path("tests/perf_i2_dev.json").read_text())
-    return [PerfCase(**entry) for entry in payload["cases"]]
+def test_aggregate_counts(tmp_path: Path):
+    payload = {
+        "event": "shadow_compare.completed",
+        "severity": "CRITICAL",
+        "kind": "value",
+    }
+    log_path = tmp_path / "shadow.jsonl"
+    log_path.write_text("\n".join([str(payload).replace("'", '"') for _ in range(3)]))
 
-
-def test_perf_i2_microbenchmark(tmp_path):
-    cases = _load_cases()
-    assert len(cases) == 60
-
-    metrics = run_perf_benchmark(cases, warmup_runs=1, measure_runs=3)
-    assert len(metrics) == len(cases)
-    assert all(len(metric.samples) == 3 for metric in metrics)
-
-    json_path, md_path = write_perf_reports(
-        metrics=metrics,
-        output_dir=tmp_path,
-        warmup_runs=1,
-        measure_runs=3,
-    )
-
-    json_payload = json.loads(json_path.read_text())
-    assert json_payload["meta"]["warmup_runs"] == 1
-    assert json_payload["meta"]["measure_runs"] == 3
-    assert len(json_payload["cases"]) == len(metrics)
-
-    md_lines = md_path.read_text().strip().splitlines()
-    assert md_lines[0].startswith("# I2 microbenchmark")
+    summary = aggregate([log_path], top=2)
+    assert summary["total_events"] == 3
+    assert summary["severity"]["CRITICAL"] == 3
+    assert summary["top_kinds"][0][0] == "value"

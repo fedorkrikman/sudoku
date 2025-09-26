@@ -1,5 +1,13 @@
 # Changelog
 
+# 2025-09-26 — feat(orchestrator): shadow compare runtime & tooling
+
+- Добавлены runtime-утилиты `contracts.jsoncanon`, `contracts.artifacts`, `contracts.envelope`.
+- Реализованы `orchestrator.sampling`, обновлённый `shadow_compare.run_with_shadow` и JSONL-логгер с ротацией.
+- Введены CLI-команды `tools.cli.orchestrate` и отчёт `tools.reports.mismatch_report`.
+- Добавлена политика авто-регулировки в `policy.shadow` и тесты для канонизации/семплинга/shadow-mode.
+- Документация (`README`, `docs/CODEX_GUIDE.md`, `docs/logging/shadowlog_v1.md`) дополнена разделами про shadow-mode.
+
 ## 2025-09-26 — docs: mini-repair + strategy anchor
 
 - README обновлён: раздел «How to verify locally», якорь совместимости и дата проверки.

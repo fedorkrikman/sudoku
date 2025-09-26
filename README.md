@@ -64,6 +64,18 @@ PYTHONPATH=src python -m orchestrator.orchestrator
      --output-dir exports_novus
    ```
 
+## Shadow mode (overview)
+
+- **Опция sample-rate.** Настраивается переменной `PUZZLE_SOLVER_SAMPLE_RATE`
+  (0.0 по умолчанию). Прод использует <= 0.01.
+- **Разовый прогон.** `PYTHONPATH=src python -m tools.cli.orchestrate run-one --seed <hex> --puzzle sudoku-9x9`.
+- **Пакет сидов.** `PYTHONPATH=src python -m tools.cli.orchestrate batch-seeds seeds.txt --puzzle sudoku-9x9`.
+- **Отчёт по логам.** `PYTHONPATH=src python -m tools.cli.orchestrate report-shadow logs/shadow --top 10` — агрегирует
+  `severity`/`kind` и вычисляет канонический дайджест сводки.
+- **Ротация логов.** Shadow-лог сохраняется в `logs/shadow/YYYYMMDD/shadow_<nn>.jsonl`,
+  ротируется при 100 MiB. Используйте `policy.shadow.recommend_action` для
+  интерпретации метрик `overhead_pct` и `mismatch_rate`.
+
 ## Contracts and artifacts
 
 Схемы первого поколения лежат в каталоге [`PuzzleContracts/`](./PuzzleContracts).
