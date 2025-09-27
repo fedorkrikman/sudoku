@@ -1,6 +1,6 @@
 # CODEX_GUIDE
 
-> Verified on 2025-09-26
+> Verified on 2025-09-27
 
 ## 1. Назначение и область действия
 Документ адресован Codex, работающему в IDE над изменениями в этом репозитории. Руководство описывает ожидания к структуре PR, проверкам и артефактам. В объём не входят сетевые вызовы или добавление URL, самостоятельные переименования без соответствующего ADR и задачи вне этого репозитория.
@@ -103,10 +103,10 @@ separators=(",", ":"), ensure_ascii=False)` для отчётов и артеф�
 
 ### Shadow-mode dev-loop
 
-- Включить тень локально: `export PUZZLE_SOLVER_STATE=shadow` и установить
-  `PUZZLE_SOLVER_SAMPLE_RATE=0.05` (по умолчанию 0.0).
-- Для единичного прогона используйте `python -m tools.cli.orchestrate run-one --seed <hex> [--puzzle sudoku-9x9]`.
-- Для серии сидов: `python -m tools.cli.orchestrate batch-seeds seeds.txt`.
+- Активировать тень можно флагом `--enable-shadow` (CLI) или установкой
+  `shadow_mode.enabled=true` в `config/features.toml`.
+- Для единичного прогона используйте `python -m tools.cli.orchestrate run-one --seed <hex> --profile dev --enable-shadow [--shadow-rate <r>]`.
+- Для серии сидов: `python -m tools.cli.orchestrate batch-seeds seeds.txt --profile dev --enable-shadow`.
 - Сводку по логам собирает `python -m tools.cli.orchestrate report-shadow logs/shadow --top 10`.
 - Ключевые метрики: `severity`, `kind`, `timings.overhead_pct`. Если `overhead_pct`
   стабильно > 0.05 — уменьшить `sample_rate` или проверить `policy.shadow.recommend_action`.

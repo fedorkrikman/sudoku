@@ -1,6 +1,6 @@
 # sudoku
 
-> Verified on 2025-09-26
+> Verified on 2025-09-27
 
 ## Читайте в первую очередь
 
@@ -39,17 +39,22 @@ PYTHONPATH=src python -m orchestrator.orchestrator
 
 2. **Dev-shadow** — запускает проверенный legacy-конвейер, одновременно
    подключая Nova Solver в «тени» для сбора метрик. Артефакты экспорта будут
-   сформированы legacy-путём.
+   сформированы legacy-путём. Рекомендуемый запуск — через CLI-обёртку, чтобы
+   явно указать профиль и параметры shadow.
 
    ```bash
-   PUZZLE_VALIDATION_PROFILE=dev \
-   PUZZLE_SOLVER_STATE=shadow \
-   PUZZLE_SOLVER_IMPL=novus \
    PYTHONPATH=src \
-   python -m orchestrator.orchestrator \
-     --puzzle sudoku-9x9 \
-     --output-dir exports_shadow
+   python -m tools.cli.orchestrate run-one \
+     --seed 42 \
+     --profile dev \
+     --enable-shadow \
+     --shadow-rate 0.25
    ```
+
+   Параметр `--shadow-rate` переопределяет значение из `config.toml`
+   (по умолчанию 0.25 для профиля `dev`). Аналогичный эффект достигается
+   переменными окружения `PUZZLE_SHADOW_MODE_ENABLED=1` и
+   `PUZZLE_SHADOW_RATE=<0..1>`.
 
 3. **Полный Nova-конвейер** — включает Nova Solver как основной. Используйте
    после успешного shadow-прогона.
@@ -66,10 +71,12 @@ PYTHONPATH=src python -m orchestrator.orchestrator
 
 ## Shadow mode (overview)
 
-- **Опция sample-rate.** Настраивается переменной `PUZZLE_SOLVER_SAMPLE_RATE`
-  (0.0 по умолчанию). Прод использует <= 0.01.
-- **Разовый прогон.** `PYTHONPATH=src python -m tools.cli.orchestrate run-one --seed <hex> --puzzle sudoku-9x9`.
-- **Пакет сидов.** `PYTHONPATH=src python -m tools.cli.orchestrate batch-seeds seeds.txt --puzzle sudoku-9x9`.
+- **Фича-флаг.** Shadow-путь активируется через `config/features.toml`
+  (`shadow_mode.enabled`) или временно командой `run-one --enable-shadow`.
+- **Опция sample-rate.** Настраивается переменной `PUZZLE_SHADOW_RATE`
+  (по умолчанию 0.25 в профиле `dev`, 0.0 в остальных). Прод использует ≤ 0.01.
+- **Разовый прогон.** `PYTHONPATH=src python -m tools.cli.orchestrate run-one --seed <hex> --profile dev --enable-shadow`.
+- **Пакет сидов.** `PYTHONPATH=src python -m tools.cli.orchestrate batch-seeds seeds.txt --profile dev --enable-shadow`.
 - **Отчёт по логам.** `PYTHONPATH=src python -m tools.cli.orchestrate report-shadow logs/shadow --top 10` — агрегирует
   `severity`/`kind` и вычисляет канонический дайджест сводки.
 - **Ротация логов.** Shadow-лог сохраняется в `logs/shadow/YYYYMMDD/shadow_<nn>.jsonl`,

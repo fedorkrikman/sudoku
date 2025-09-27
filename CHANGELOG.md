@@ -1,5 +1,13 @@
 # Changelog
 
+# Unreleased
+
+- feat(sudoku-9x9): enable novus solver shadow bring-up in `dev` profile and
+  document the `tools.cli.orchestrate` flow (`README`, `docs/STRATEGY.md`,
+  `docs/GOALS_ROADMAP.md`, `docs/CODEX_GUIDE.md`).
+- chore: refresh verification stamps to 2025-09-27 and record shadow bring-up
+  guardrails (determinism, parity, shadow overhead).
+
 # 2025-09-26 — feat(orchestrator): shadow compare runtime & tooling
 
 - Добавлены runtime-утилиты `contracts.jsoncanon`, `contracts.artifacts`, `contracts.envelope`.
