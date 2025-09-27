@@ -61,6 +61,18 @@ def _check_no_fractional_numbers(value: object, *, path: str = "event") -> None:
 
 
 def _check_log_integrity(base: Path) -> None:
+    hex_pattern = re.compile(r"^[0-9a-f]{64}$")
+
+    def _walk(value: object, path: str) -> None:
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                _walk(item, f"{path}.{key}" if path else str(key))
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                _walk(item, f"{path}[{index}]")
+        elif isinstance(value, float):
+            raise ValueError(f"log field {path} must not be a float (got {value!r})")
+
     for event in _iter_log_events(base):
         _walk(event, "event")
         for key in ("time_ms_primary", "time_ms_shadow", "time_ms", "nodes", "bt_depth"):
@@ -71,9 +83,8 @@ def _check_log_integrity(base: Path) -> None:
         for key in _DIGEST_KEYS:
             if key in event:
                 value = event[key]
-                if not isinstance(value, str) or _HEX64.fullmatch(value) is None:
+                if not isinstance(value, str) or hex_pattern.fullmatch(value) is None:
                     raise ValueError(f"log field {key} must be 64 hex characters")
-        _check_no_fractional_numbers(event)
 
 
 def main(argv: Iterable[str] | None = None) -> int:
