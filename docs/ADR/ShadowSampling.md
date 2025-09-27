@@ -1,7 +1,9 @@
 # ADR: ShadowSampling v1
 
-> Status: Accepted  
+> Status: Accepted
 > Verified on 2025-09-27
+
+**Compatibility:** shadow mismatch events adhere to schema `sudoku.shadow_mismatch.v1`; guardrail breaches surface as taxonomy `C4`.
 
 ## Context
 
@@ -20,19 +22,22 @@ Nova Solver выводится в тень поверх legacy-пайплайн�
   разделитель, ≤6 знаков после точки). Числовые переопределения работают с
   предупреждением в 2А, но подлежат удалению в следующей итерации.
 - При попадании в выборку запускается альтернативный solver, сравниваются
-  `CompleteGrid` и `Verdict.unique`, логируется событие `shadowlog/1`.
-- Логи нормализуются под `logging/shadowlog_v1.md` и складываются в `logs/shadow`.
-- CI использует отчёт `tools/ci/shadow_overhead_guard` для контроля overhead и
-  рекомендуемых действий по sample_rate.
+  `CompleteGrid` и `Verdict.unique`, логируется событие `sudoku.shadow_mismatch.v1`
+  c таксономией `C1..C6` и детерминированными временными метриками.
+- Логи нормализуются под `logging/shadowlog_v1.md` и складываются в `logs/shadow`;
+  дублируются проверки `tools/ci/doc_checks.py` (дата/совместимость/целые миллисекунды).
+- CI использует отчёт `tools/ci/shadow_overhead_guard.py` для контроля overhead и
+  рекомендуемых действий по sample_rate; baseline агрегируется по `(commit, hw, profile)`
+  в `reports/overhead/` с TTL 14 дней.
 - Приоритет конфигурации: **CLI (`CLI_SHADOW_*`) > ENV (`PUZZLE_SHADOW_*`,
   `SHADOW_*`) > TOML (`config.toml` + `config/features.toml`) > built-ins (dev
   профиль)**. Значения кэшируются на время процесса.
-- Shadow события формируются как `sudoku.shadow_sample.v1` (совпадение) и
-  `sudoku.shadow_mismatch.v1` (расхождение) с полями:
-  `{run_id, ts_iso8601, commit_sha, baseline_sha, hw_fingerprint, profile,
-  puzzle_digest, solver_primary, solver_shadow, verdict_status, time_ms_primary,
-  time_ms_shadow, diff_summary, solved_ref_digest, sample_rate,
-  solve_trace_sha256, state_hash_sha256, envelope_jcs_sha256}`.
+- Shadow события валидируются схемой [`sudoku.shadow_mismatch.v1.schema.json`](../icd/schemas/sudoku.shadow_mismatch.v1.schema.json)
+  и включают `taxonomy` (`C1` – уникальность, `C2` – сетка, `C3` – trace,
+  `C4` – guardrail, `C5` – канон, `C6` – остальные). При срабатывании лимитов
+  `nodes<=200_000`, `bt_depth<=60`, `time_ms<=2000` событие помечается
+  `verdict_status=budget_exhausted` и фиксирует дополнительные поля `nodes`,
+  `bt_depth`, `time_ms`, `limit_hit`.
 - `state_hash_sha256 = sha256(bytes(C) || bytes(G))`, где `C` — 81×9 матрица
   флагов кандидатов (0/1), `G` — 81 байт фактической сетки (0..9). Хэш
   вычисляется на стороне тени независимо от наличия `CompleteGrid`.

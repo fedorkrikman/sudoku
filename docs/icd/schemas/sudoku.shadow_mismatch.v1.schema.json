@@ -1,0 +1,161 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://sudoku.example.com/schemas/sudoku.shadow_mismatch.v1.schema.json",
+  "title": "sudoku.shadow_mismatch.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "run_id",
+    "ts_iso8601",
+    "commit_sha",
+    "baseline_sha",
+    "hw_fingerprint",
+    "profile",
+    "puzzle_digest",
+    "solver_primary",
+    "solver_shadow",
+    "verdict_status",
+    "time_ms_primary",
+    "time_ms_shadow",
+    "diff_summary",
+    "solved_ref_digest",
+    "taxonomy",
+    "sample_rate",
+    "solve_trace_sha256",
+    "state_hash_sha256",
+    "envelope_jcs_sha256"
+  ],
+  "properties": {
+    "type": {
+      "const": "sudoku.shadow_mismatch.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ts_iso8601": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "commit_sha": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "baseline_sha": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "hw_fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "puzzle_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "solver_primary": {
+      "type": "string",
+      "enum": ["legacy"]
+    },
+    "solver_shadow": {
+      "type": "string",
+      "enum": ["novus"]
+    },
+    "verdict_status": {
+      "type": "string",
+      "enum": ["mismatch", "budget_exhausted"]
+    },
+    "time_ms_primary": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "time_ms_shadow": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "diff_summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "solved_ref_digest": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "taxonomy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "reason"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": ["C1", "C2", "C3", "C4", "C5", "C6"]
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["CRITICAL", "MAJOR", "MINOR"]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "sample_rate": {
+      "type": "string",
+      "minLength": 1
+    },
+    "solve_trace_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "state_hash_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "envelope_jcs_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nodes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "bt_depth": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "time_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "limit_hit": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "verdict_status": {"const": "budget_exhausted"}
+        }
+      },
+      "then": {
+        "required": ["nodes", "bt_depth", "time_ms", "limit_hit"],
+        "properties": {
+          "taxonomy": {
+            "properties": {
+              "code": {"const": "C4"},
+              "severity": {"const": "MAJOR"}
+            }
+          }
+        }
+      }
+    }
+  ]
+}

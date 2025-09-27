@@ -1,0 +1,26 @@
+{
+  "type": "sudoku.shadow_mismatch.v1",
+  "run_id": "run-example-0001",
+  "ts_iso8601": "2023-01-01T00:00:00.000Z",
+  "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+  "baseline_sha": "89abcdef0123456789abcdef0123456789abcdef",
+  "hw_fingerprint": "0011223344556677",
+  "profile": "dev",
+  "puzzle_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "solver_primary": "legacy",
+  "solver_shadow": "novus",
+  "verdict_status": "mismatch",
+  "time_ms_primary": 12,
+  "time_ms_shadow": 14,
+  "diff_summary": "C2:grid_value_diff",
+  "solved_ref_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "taxonomy": {
+    "code": "C2",
+    "severity": "CRITICAL",
+    "reason": "grid_value_diff"
+  },
+  "sample_rate": "1",
+  "solve_trace_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "state_hash_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "envelope_jcs_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+}

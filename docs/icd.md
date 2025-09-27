@@ -1,5 +1,9 @@
 # Interface Control Document – Shadow Compare Integration
 
+> Verified on 2025-09-27
+
+**Compatibility:** schema `sudoku.shadow_mismatch.v1` (draft-07) — см. раздел Counters and events.
+
 ## Overview
 
 The orchestrator drives Sudoku puzzle generation through generator, solver and
@@ -35,14 +39,31 @@ and the baseline legacy solver without changing public contracts.
 
 ## Counters and events
 
-* Event schema ``shadowlog/1`` includes deterministic ``event_id`` (sha256 hash
-  of the canonical JSON without ``event_id``), solver metadata and optional
-  comparison ``details``.  ``ts`` is derived deterministically from the sample
-  digest to keep event IDs stable across replays.
-* Aggregated counters:
-  - ``shadow_ok`` – exact match between primary and shadow.
-  - ``shadow_mismatch_{CODE}`` – mismatches for ``C*``/``M*`` codes.
-  - ``shadow_error_{CODE}`` – exceptions during shadow execution (``E*``).
-  - ``shadow_info`` – sampling miss bookkeeping.
-* ``run_pipeline`` attaches the event payload and counters under the
-  ``results['shadow']`` key for diagnostics and CI pipelines.
+* Несоответствия логируются событием ``sudoku.shadow_mismatch.v1`` (см. [schema](./schemas/sudoku.shadow_mismatch.v1.schema.json)).
+  Поля включают:
+  - ``run_id``, ``stage``, ``seed`` — детерминированные идентификаторы запуска.
+  - ``commit_sha``, ``baseline_sha`` — SHA-1/256 коммита и baseline (hex lower).
+  - ``hw_fingerprint`` — 16-символьный SHA-256 дайджест ``platform.uname``.
+  - ``time_ms_primary`` и ``time_ms_shadow`` — целочисленные миллисекунды.
+  - ``taxonomy`` — структура ``{code, severity, reason}`` с кодами ``C1``..``C6``.
+  - ``diff_summary`` — ``<CODE>:<reason>`` для удобства агрегации.
+  - ``sample_rate`` + дайджесты ``solve_trace_sha256``, ``state_hash_sha256``, ``envelope_jcs_sha256``.
+  - При срабатывании защитных лимитов (``nodes`` > 200k, ``bt_depth`` > 60, ``time_ms`` > 2000) добавляются поля
+    ``nodes``, ``bt_depth``, ``time_ms``, ``limit_hit`` и статус ``verdict_status = budget_exhausted`` (таксономия ``C4``).
+* Совпадения фиксируются ``sudoku.shadow_sample.v1`` (те же поля без ``taxonomy`` и защитных метрик).
+* Агрегированные счётчики:
+  - ``shadow_ok`` – совпадение primary и shadow.
+  - ``shadow_mismatch_{CODE}`` – количество несоответствий по коду ``C1``..``C6``.
+  - ``shadow_skipped`` – попадание в выборку, которое не было выполнено (sample miss).
+* ``run_pipeline`` возвращает событие и счётчики в ``results['shadow']`` для CI и офлайн-отчётов.
+
+### Taxonomy ``C1`` – ``C6``
+
+| Code | Severity  | Описание |
+| ---- | --------- | -------- |
+| ``C1`` | CRITICAL | Несовпадение флага ``unique``/вердикта |
+| ``C2`` | CRITICAL | Отличия в решённой сетке |
+| ``C3`` | MAJOR    | Расхождение trace/solve trace |
+| ``C4`` | MAJOR    | Срабатывание guardrail (узлы/время/глубина) |
+| ``C5`` | MINOR    | Отличия канонического представления (например, кандидаты) |
+| ``C6`` | MINOR    | Прочие детерминированные расхождения |

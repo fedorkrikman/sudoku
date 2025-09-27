@@ -51,6 +51,10 @@
 - Shadow sampling accepts decimal strings only (dot separator, up to six
   fractional digits). Numeric overrides are still accepted in Iteration 2A but
   emit a deprecation warning.
+- Guardrails enforce nodes ≤ 200k, backtracking depth ≤ 60 и время ≤ 2000 мс.
+  При срабатывании лимитов события получают статус `budget_exhausted` и
+  попадают в схему `sudoku.shadow_mismatch.v1` вместе с полями `nodes`,
+  `bt_depth`, `time_ms`, `limit_hit` и таксономией `C4`.
 
 > Verified on 2025-09-27
 

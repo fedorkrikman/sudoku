@@ -83,6 +83,14 @@ PYTHONPATH=src python -m orchestrator.orchestrator
   ротируется при 100 MiB. Используйте `policy.shadow.recommend_action` для
   интерпретации метрик `overhead_pct` и `mismatch_rate`.
 
+## Compatibility notes
+
+- События рассогласований теперь описываются схемой [`docs/icd/schemas/sudoku.shadow_mismatch.v1.schema.json`](docs/icd/schemas/sudoku.shadow_mismatch.v1.schema.json).
+  При превышении защитных лимитов (узлы, глубина бэктрекинга, время) они получают статус `budget_exhausted` и включают
+  целочисленные поля `nodes`, `bt_depth`, `time_ms`, `limit_hit` вместе с таксономией кодов `C1…C6`.
+- В JSONL-логах shadow значения `time_ms_primary` и `time_ms_shadow` фиксируются как целые миллисекунды; проверка
+  `tools/ci/doc_checks.py` гарантирует отсутствие дробных секунд и валидирует 64-символьные hex-дайджесты.
+
 ## Contracts and artifacts
 
 Схемы первого поколения лежат в каталоге [`PuzzleContracts/`](./PuzzleContracts).

@@ -1,0 +1,30 @@
+{
+  "type": "sudoku.shadow_mismatch.v1",
+  "run_id": "run-example-guardrail",
+  "ts_iso8601": "2023-01-01T00:00:00.000Z",
+  "commit_sha": "fedcba9876543210fedcba9876543210fedcba98",
+  "baseline_sha": "0123456789abcdef0123456789abcdef01234567",
+  "hw_fingerprint": "8899aabbccddeeff",
+  "profile": "ci",
+  "puzzle_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "solver_primary": "legacy",
+  "solver_shadow": "novus",
+  "verdict_status": "budget_exhausted",
+  "time_ms_primary": 8,
+  "time_ms_shadow": 2050,
+  "diff_summary": "C4:time_ms",
+  "solved_ref_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "taxonomy": {
+    "code": "C4",
+    "severity": "MAJOR",
+    "reason": "guardrail_exceeded_time_ms"
+  },
+  "sample_rate": "1",
+  "solve_trace_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "state_hash_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "envelope_jcs_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "nodes": 250000,
+  "bt_depth": 64,
+  "time_ms": 2050,
+  "limit_hit": "time_ms+nodes"
+}

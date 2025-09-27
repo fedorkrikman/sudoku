@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import platform
+import string
 import time
 import uuid
 from dataclasses import dataclass
@@ -65,7 +66,7 @@ class ShadowTask:
     candidate_runner: Callable[[], ShadowRun]
     sticky: bool = False
     guardrail: Callable[[GuardrailContext], bool] | None = None
-    classifier: Callable[[ShadowRun, ShadowRun], Tuple[str, str]] | None = None
+    classifier: Callable[[ShadowRun, ShadowRun], Tuple[str, str] | None] | None = None
     metadata: Mapping[str, Any] | None = None
     allow_fallback: bool = True
     primary_impl: str = "legacy"
@@ -88,6 +89,7 @@ class ShadowResult:
     event_path: Path | None
     timings: Mapping[str, float]
     event: Mapping[str, Any]
+    taxonomy: Mapping[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -99,6 +101,20 @@ class ShadowEvent:
 class ShadowOutcome:
     event: ShadowEvent
     counters: Mapping[str, int]
+
+
+_HEX_CHARS = {ch for ch in string.hexdigits.lower()}
+
+_TAXONOMY: Mapping[str, Mapping[str, str]] = {
+    "C1": {"label": "UNIQUE_FLAG_MISMATCH", "severity": "CRITICAL"},
+    "C2": {"label": "GRID_VALUE_DIFF", "severity": "CRITICAL"},
+    "C3": {"label": "SOLVE_TRACE_DIVERGENCE", "severity": "MAJOR"},
+    "C4": {"label": "PERFORMANCE_REGRESSION", "severity": "MAJOR"},
+    "C5": {"label": "FORMAT_CANON_MISMATCH", "severity": "MINOR"},
+    "C6": {"label": "OTHER", "severity": "MINOR"},
+}
+
+_GUARDRAIL_LIMITS = {"nodes": 200_000, "bt_depth": 60, "time_ms": 2_000}
 
 
 @lru_cache(maxsize=1)
@@ -129,6 +145,33 @@ def _hardware_fingerprint() -> str:
     payload = "|".join(str(part) for part in platform.uname())
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return digest[:16]
+
+
+def _normalize_hex_digest(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    candidate = value.strip().lower()
+    if candidate.startswith("sha256-") or candidate.startswith("sha1-"):
+        candidate = candidate.split("-", 1)[1]
+    if not candidate:
+        return None
+    if all(ch in _HEX_CHARS for ch in candidate) and len(candidate) in (40, 64):
+        return candidate
+    return None
+
+
+def _normalize_required_hex(value: Any, *, fallback: str) -> str:
+    candidate = _normalize_hex_digest(value)
+    if candidate is not None:
+        return candidate
+    fallback_candidate = _normalize_hex_digest(fallback)
+    if fallback_candidate is not None:
+        return fallback_candidate
+    return "0" * 64
+
+
+def _round_ms(value: float) -> int:
+    return max(0, int(round(value)))
 
 
 def _deterministic_timestamp(run_id: str, stage: str) -> str:
@@ -311,28 +354,86 @@ def _state_hash_digest(
     return hashlib.sha256(candidate_bytes + grid_bytes).hexdigest()
 
 
+def _coerce_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        try:
+            return int(value)
+        except (OverflowError, ValueError):
+            return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            return int(float(stripped))
+        except ValueError:
+            return None
+    return None
+
+
+def _collect_guardrail_metrics(run: ShadowRun, measured_ms: float) -> Dict[str, int]:
+    payload = run.result_artifact if isinstance(run.result_artifact, Mapping) else {}
+    bt_depth_keys = ("bt_depth", "backtrack_depth", "max_bt_depth", "depth")
+    metrics: Dict[str, int] = {
+        "nodes": _coerce_int(payload.get("nodes")) or 0,
+        "bt_depth": 0,
+        "time_ms": _coerce_int(payload.get("time_ms")) or _round_ms(measured_ms),
+    }
+    for key in bt_depth_keys:
+        candidate = payload.get(key) if isinstance(payload, Mapping) else None
+        coerced = _coerce_int(candidate)
+        if coerced is not None:
+            metrics["bt_depth"] = coerced
+            break
+    return metrics
+
+
+def _evaluate_guardrails(metrics: Mapping[str, int]) -> Dict[str, Any] | None:
+    breaches = []
+    for name, limit in _GUARDRAIL_LIMITS.items():
+        value = int(metrics.get(name, 0))
+        if value > limit:
+            breaches.append(name)
+    if not breaches:
+        return None
+    payload = dict(metrics)
+    payload["limit_hit"] = "+".join(sorted(set(breaches)))
+    return payload
+
+
 def _build_shadow_event(
     *,
     task: ShadowTask,
-    severity: str,
-    kind: str,
     timings: Mapping[str, float],
     baseline: ShadowRun,
     candidate: ShadowRun,
+    taxonomy: Mapping[str, str] | None,
+    verdict_status: str,
+    diff_summary: str,
+    puzzle_digest: str | None,
+    solved_ref_digest: str,
+    solve_trace_digest: str,
+    state_hash_digest: str,
+    envelope_digest: str,
+    guardrail: Mapping[str, Any] | None,
 ) -> Mapping[str, Any]:
-    status = "match" if severity == "NONE" else "mismatch"
-    event_type = "sudoku.shadow_mismatch.v1" if severity != "NONE" else "sudoku.shadow_sample.v1"
     metadata = task.metadata or {}
-    puzzle_digest = metadata.get("puzzle_digest")
-    baseline_sha = metadata.get("baseline_sha") or metadata.get("commit_sha") or _current_commit_sha()
-    commit_sha = metadata.get("commit_sha") or _current_commit_sha()
+    commit_sha = _normalize_required_hex(
+        metadata.get("commit_sha"), fallback=_current_commit_sha()
+    )
+    baseline_sha = _normalize_required_hex(
+        metadata.get("baseline_sha") or commit_sha, fallback=commit_sha
+    )
     hw_fp = metadata.get("hw_fingerprint") or _hardware_fingerprint()
-    solved_ref = _extract_solved_ref(candidate.result_artifact)
-    if solved_ref is None and baseline.result_artifact:
-        solved_ref = _extract_solved_ref(baseline.result_artifact)
-    diff_summary = "none" if severity == "NONE" else f"{kind}:{severity}"
+    puzzle_hex = _normalize_required_hex(puzzle_digest, fallback="0" * 64)
 
-    return {
+    event_type = "sudoku.shadow_mismatch.v1"
+    if taxonomy is None and verdict_status == "match":
+        event_type = "sudoku.shadow_sample.v1"
+
+    event: Dict[str, Any] = {
         "type": event_type,
         "run_id": task.run_id,
         "ts_iso8601": _deterministic_timestamp(task.run_id, task.stage),
@@ -340,15 +441,30 @@ def _build_shadow_event(
         "baseline_sha": baseline_sha,
         "hw_fingerprint": hw_fp,
         "profile": task.profile,
-        "puzzle_digest": puzzle_digest,
+        "puzzle_digest": puzzle_hex,
         "solver_primary": task.primary_impl,
         "solver_shadow": task.secondary_impl,
-        "verdict_status": status,
-        "time_ms_primary": round(float(timings.get("candidate_ms", 0.0)), 3),
-        "time_ms_shadow": round(float(timings.get("baseline_ms", 0.0)), 3),
+        "verdict_status": verdict_status,
+        "time_ms_primary": _round_ms(float(timings.get("candidate_ms", 0.0))),
+        "time_ms_shadow": _round_ms(float(timings.get("baseline_ms", 0.0))),
         "diff_summary": diff_summary,
-        "solved_ref_digest": solved_ref,
+        "solved_ref_digest": _normalize_required_hex(
+            solved_ref_digest, fallback=puzzle_hex
+        ),
+        "sample_rate": task.sample_rate_str,
+        "solve_trace_sha256": solve_trace_digest,
+        "state_hash_sha256": state_hash_digest,
+        "envelope_jcs_sha256": envelope_digest,
     }
+    if taxonomy is not None:
+        event["taxonomy"] = dict(taxonomy)
+    if guardrail is not None:
+        for key, value in guardrail.items():
+            if key == "limit_hit":
+                event[key] = str(value)
+            else:
+                event[key] = int(value)
+    return event
 def _execute_runner(runner: Callable[[], ShadowRun]) -> tuple[ShadowRun, float]:
     start = time.perf_counter()
     result = runner()
@@ -389,70 +505,41 @@ def _resolve_counterpart(
     return resolve(puzzle_kind, "solver", profile, env_map)
 
 
-def classify_mismatch(baseline: ShadowRun, candidate: ShadowRun) -> tuple[str, str]:
+def classify_mismatch(baseline: ShadowRun, candidate: ShadowRun) -> tuple[str, str] | None:
     if baseline.verdict != candidate.verdict:
-        return "nondeterminism", "CRITICAL"
-
-    if baseline.result_artifact == candidate.result_artifact:
-        return "none", "NONE"
+        return "C1", "unique_flag_mismatch"
 
     base_payload = baseline.result_artifact
     cand_payload = candidate.result_artifact
 
     if isinstance(base_payload, Mapping) and isinstance(cand_payload, Mapping):
+        if base_payload == cand_payload:
+            return None
+
+        base_unique = base_payload.get("unique")
+        cand_unique = cand_payload.get("unique")
+        if base_unique != cand_unique:
+            return "C1", "unique_flag_mismatch"
+
+        if base_payload.get("grid") != cand_payload.get("grid"):
+            return "C2", "grid_value_diff"
+
+        if base_payload.get("trace") != cand_payload.get("trace"):
+            return "C3", "solve_trace_divergence"
+
+        if base_payload.get("candidates") != cand_payload.get("candidates"):
+            return "C5", "format_canon_mismatch"
+
         base_core = {k: v for k, v in base_payload.items() if k != "trace"}
         cand_core = {k: v for k, v in cand_payload.items() if k != "trace"}
-        if base_core == cand_core:
-            return "none", "NONE"
-        if base_payload.get("grid") != cand_payload.get("grid"):
-            return "value", "CRITICAL"
-        if base_payload.get("candidates") != cand_payload.get("candidates"):
-            return "candidates", "MAJOR"
-        return "trace", "MINOR"
+        if base_core != cand_core:
+            return "C6", "other_diff"
 
-    return "value", "MAJOR"
+        return None
 
-
-def _build_event(
-    *,
-    task: ShadowTask,
-    severity: str,
-    kind: str,
-    baseline: ShadowRun,
-    candidate: ShadowRun,
-    baseline_digest: str,
-    candidate_digest: str,
-    timings: Mapping[str, float],
-) -> Mapping[str, Any]:
-    payload: MutableMapping[str, Any] = {
-        "event": "shadow_compare.completed",
-        "envelope": envelope_to_dict(task.envelope),
-        "run_id": task.run_id,
-        "stage": task.stage,
-        "seed": task.seed,
-        "module_id": task.module_id,
-        "profile": task.profile,
-        "sample_rate": task.sample_rate_str,
-        "severity": severity,
-        "kind": kind,
-        "digests": {
-            "baseline": baseline_digest,
-            "candidate": candidate_digest,
-        },
-        "verdict": {
-            "baseline": baseline.verdict,
-            "candidate": candidate.verdict,
-        },
-        "timings": {
-            "baseline_ms": round(timings.get("baseline_ms", 0.0), 3),
-            "candidate_ms": round(timings.get("candidate_ms", 0.0), 3),
-            "delta_ms": round(timings.get("delta_ms", 0.0), 3),
-            "overhead_pct": round(timings.get("overhead_pct", 0.0), 5),
-        },
-    }
-    if task.metadata:
-        payload["metadata"] = dict(task.metadata)
-    return payload
+    if base_payload == cand_payload:
+        return None
+    return "C6", "other_diff"
 
 
 def run_with_shadow(task: ShadowTask) -> ShadowResult:
@@ -481,7 +568,12 @@ def run_with_shadow(task: ShadowTask) -> ShadowResult:
     )
 
     if not sampled:
-        timings = {"candidate_ms": cand_ms, "baseline_ms": 0.0, "delta_ms": cand_ms, "overhead_pct": 0.0}
+        timings = {
+            "candidate_ms": cand_ms,
+            "baseline_ms": 0.0,
+            "delta_ms": cand_ms,
+            "overhead_pct": 0.0,
+        }
         event_payload: Mapping[str, Any] = {
             "event": "shadow_compare.skipped",
             "run_id": task.run_id,
@@ -494,7 +586,12 @@ def run_with_shadow(task: ShadowTask) -> ShadowResult:
             "kind": "none",
             "sampled": False,
             "digests": {"baseline": None, "candidate": candidate_digest},
-            "timings": timings,
+            "timings": {
+                "baseline_ms": _round_ms(timings["baseline_ms"]),
+                "candidate_ms": _round_ms(timings["candidate_ms"]),
+                "delta_ms": _round_ms(timings["delta_ms"]),
+                "overhead_pct": round(timings["overhead_pct"], 5),
+            },
         }
         if puzzle_digest_str:
             event_payload = {**event_payload, "puzzle_digest": puzzle_digest_str}
@@ -517,13 +614,11 @@ def run_with_shadow(task: ShadowTask) -> ShadowResult:
             event_path=None,
             timings=timings,
             event=event_payload,
+            taxonomy=None,
         )
 
     baseline, base_ms = _execute_runner(task.baseline_runner)
     baseline_digest = jcs_sha256(baseline.result_artifact)
-
-    classifier = task.classifier or classify_mismatch
-    kind, severity = classifier(baseline, candidate)
 
     delta_ms = cand_ms - base_ms
     overhead_pct = 0.0 if base_ms <= 0 else delta_ms / base_ms
@@ -534,25 +629,63 @@ def run_with_shadow(task: ShadowTask) -> ShadowResult:
         "overhead_pct": overhead_pct,
     }
 
+    guardrail_metrics = _collect_guardrail_metrics(baseline, base_ms)
+    guardrail_payload = _evaluate_guardrails(guardrail_metrics)
+
+    taxonomy_entry: Mapping[str, str] | None = None
+    severity = "NONE"
+    kind = "none"
+    verdict_status = "match"
+    diff_summary = "none"
+
+    if guardrail_payload is not None:
+        code = "C4"
+        limit_hit = guardrail_payload.get("limit_hit", "unknown")
+        limit_tag = str(limit_hit).replace("+", "_")
+        reason = f"guardrail_exceeded_{limit_tag}"
+        taxonomy_entry = {
+            "code": code,
+            "severity": _TAXONOMY[code]["severity"],
+            "reason": reason,
+        }
+        severity = taxonomy_entry["severity"]
+        kind = code
+        verdict_status = "budget_exhausted"
+        diff_summary = f"{code}:{limit_hit}"
+    else:
+        classifier = task.classifier or classify_mismatch
+        classification = classifier(baseline, candidate)
+        if classification is not None:
+            code, reason = classification
+            entry = _TAXONOMY.get(code, _TAXONOMY["C6"])
+            taxonomy_entry = {"code": code, "severity": entry["severity"], "reason": reason}
+            severity = taxonomy_entry["severity"]
+            kind = code
+            verdict_status = "mismatch"
+            diff_summary = f"{code}:{reason}"
+
+    solved_ref = _extract_solved_ref(candidate.result_artifact)
+    if solved_ref is None and isinstance(baseline.result_artifact, Mapping):
+        solved_ref = _extract_solved_ref(baseline.result_artifact)
+
     event_payload = _build_shadow_event(
         task=task,
-        severity=severity,
-        kind=kind,
         timings=timings,
         baseline=baseline,
         candidate=candidate,
+        taxonomy=taxonomy_entry,
+        verdict_status=verdict_status,
+        diff_summary=diff_summary,
+        puzzle_digest=puzzle_digest_str,
+        solved_ref_digest=solved_ref or "",
+        solve_trace_digest=solve_trace_digest,
+        state_hash_digest=state_hash_digest,
+        envelope_digest=envelope_digest,
+        guardrail=guardrail_payload,
     )
-    if puzzle_digest_str:
-        event_payload = {**event_payload, "puzzle_digest": puzzle_digest_str}
-    event_payload = {
-        **event_payload,
-        "sample_rate": task.sample_rate_str,
-        "solve_trace_sha256": solve_trace_digest,
-        "state_hash_sha256": state_hash_digest,
-        "envelope_jcs_sha256": envelope_digest,
-    }
+
     event_path: Path | None = None
-    if severity != "NONE" and task.log_mismatch:
+    if taxonomy_entry is not None and task.log_mismatch:
         event_path = log.append_event(event_payload)
 
     fallback = False
@@ -576,6 +709,7 @@ def run_with_shadow(task: ShadowTask) -> ShadowResult:
         event_path=event_path,
         timings=timings,
         event=event_payload,
+        taxonomy=taxonomy_entry,
     )
 
 
@@ -682,9 +816,10 @@ def run_shadow_check(
     counters: MutableMapping[str, int] = {}
     if not result.sampled:
         counters["shadow_skipped"] = 1
-    elif result.severity == "NONE":
+    elif result.taxonomy is None:
         counters["shadow_ok"] = 1
     else:
-        counters[f"shadow_{result.severity.lower()}_{result.kind}"] = 1
+        code = result.taxonomy.get("code", "C6")
+        counters[f"shadow_mismatch_{code}"] = 1
 
     return ShadowOutcome(event=ShadowEvent(payload=result.event), counters=counters)
