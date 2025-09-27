@@ -4,17 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
-from functools import lru_cache
-from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
 import re
 import warnings
 
-try:  # Python 3.11+
-    import tomllib  # type: ignore[attr-defined]
-except ModuleNotFoundError:  # pragma: no cover - fallback for older Python
-    import tomli as tomllib  # type: ignore[import-untyped]
-
+from feature_flags import get_shadow_feature
 from orchestrator.router import ResolvedModule, resolve
 
 from ._loader import load_module
@@ -40,24 +34,11 @@ class ShadowSettings:
 
 
 _PROFILE_SAMPLE_DEFAULTS = {
-    "dev": 0.25,
-    "test": 0.25,
-    "pilot": 1.0,
-    "prod": 0.0,
+    "dev": Decimal("0.25"),
+    "test": Decimal("0.25"),
+    "pilot": Decimal("1.0"),
+    "prod": Decimal("0.0"),
 }
-
-
-def _features_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "config" / "features.toml"
-
-
-@lru_cache(maxsize=1)
-def _load_features() -> Dict[str, Any]:
-    path = _features_path()
-    if not path.exists():
-        return {}
-    with path.open("rb") as handle:
-        return tomllib.load(handle)
 
 
 def _parse_bool(value: Any) -> Optional[bool]:
@@ -131,9 +112,12 @@ def _clamp_decimal(value: Decimal) -> Decimal:
 
 
 def _shadow_defaults(profile: str, resolved: ResolvedModule | None) -> ShadowSettings:
-    base_rate = Decimal(str(_PROFILE_SAMPLE_DEFAULTS.get(profile.lower(), 0.0)))
-    if resolved is not None and isinstance(resolved.sample_rate, (int, float)):
-        base_rate = Decimal(str(resolved.sample_rate))
+    base_rate = _PROFILE_SAMPLE_DEFAULTS.get(profile.lower(), Decimal("0"))
+    if resolved is not None and isinstance(resolved.sample_rate, (int, float, Decimal)):
+        try:
+            base_rate = Decimal(str(resolved.sample_rate))
+        except (InvalidOperation, ValueError):
+            base_rate = _PROFILE_SAMPLE_DEFAULTS.get(profile.lower(), Decimal("0"))
     clamped = _clamp_decimal(base_rate)
     primary = resolved.impl_id if resolved is not None else "legacy"
     return ShadowSettings(
@@ -144,7 +128,7 @@ def _shadow_defaults(profile: str, resolved: ResolvedModule | None) -> ShadowSet
         secondary="novus",
         log_mismatch=True,
         budget_ms_p95=50,
-        hash_salt="dev-seed",
+        hash_salt="",
         sticky=False,
     )
 
@@ -269,11 +253,8 @@ def _shadow_cli_overrides(env: Mapping[str, str]) -> Dict[str, Any]:
     return payload
 
 
-def _shadow_feature_overrides() -> Dict[str, Any]:
-    shadow_entry = _load_features().get("shadow")
-    if isinstance(shadow_entry, dict):
-        return dict(shadow_entry)
-    return {}
+def _shadow_feature_overrides(profile: str) -> Dict[str, Any]:
+    return dict(get_shadow_feature(profile))
 
 
 def _compute_shadow_settings(
@@ -288,7 +269,7 @@ def _compute_shadow_settings(
         module_override["sample_rate"] = Decimal(str(resolved.sample_rate))
 
     settings = _apply_shadow_overrides(settings, module_override)
-    settings = _apply_shadow_overrides(settings, _shadow_feature_overrides())
+    settings = _apply_shadow_overrides(settings, _shadow_feature_overrides(profile))
     settings = _apply_shadow_overrides(settings, _shadow_env_overrides(env))
     settings = _apply_shadow_overrides(settings, _shadow_cli_overrides(env))
 

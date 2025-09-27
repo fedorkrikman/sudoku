@@ -43,6 +43,17 @@
   `verdict_status`, `time_ms_primary`, `time_ms_shadow`, `diff_summary`,
   `solved_ref_digest`.
 
+### Compatibility notes
+
+- Shadow digests now use SHA-256 (`grid_sha256`, `solve_trace_sha256`,
+  `state_hash_sha256`, `envelope_jcs_sha256`). Legacy SHA-1 fingerprints are no
+  longer emitted.
+- Shadow sampling accepts decimal strings only (dot separator, up to six
+  fractional digits). Numeric overrides are still accepted in Iteration 2A but
+  emit a deprecation warning.
+
+> Verified on 2025-09-27
+
 ## Canonical Pattern Order v1
 
 Новая архитектура Nova использует фиксированный порядок эвристик для

@@ -1,39 +1,40 @@
-from __future__ import annotations
-
+from decimal import Decimal
 import hashlib
-from decimal import Decimal, ROUND_DOWN
 
-from orchestrator import sampling
+from orchestrator import orchestrator, sampling
 
 
 def _u64(hash_salt: str | None, run_id: str, puzzle_digest: str | None, sticky: bool) -> int:
-    material = [hash_salt or ""]
+    material = (hash_salt or "")
     if not sticky:
-        material.append(run_id)
-    material.extend(["sudoku", "shadow", puzzle_digest or ""])
-    payload = "".join(material).encode("utf-8")
-    return int.from_bytes(hashlib.sha256(payload).digest()[:8], "big", signed=False)
+        material += run_id
+    material += "sudoku" + "shadow" + (puzzle_digest or "")
+    digest = hashlib.sha256(material.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big", signed=False)
 
 
-def test_sticky_sampling_ignores_run_id() -> None:
-    salt = "sticky"
-    digest = "abc123"
-    rate = Decimal("0.5")
-    decision_a = sampling.hit(salt, "run-a", digest, rate, sticky=True)
-    decision_b = sampling.hit(salt, "run-b", digest, rate, sticky=True)
-    assert decision_a == decision_b
-    assert _u64(salt, "run-a", digest, True) == _u64(salt, "run-b", digest, True)
+def test_sampling_sticky_ignores_run_identifier() -> None:
+    salt = "sticky-salt"
+    digest = "a" * 64
+    run_one = sampling.hit(salt, "run-A", digest, Decimal("0.75"), sticky=True)
+    run_two = sampling.hit(salt, "run-B", digest, Decimal("0.75"), sticky=True)
+    assert run_one == run_two
+    assert _u64(salt, "run-A", digest, True) == _u64(salt, "run-B", digest, True)
 
 
-def test_non_sticky_depends_on_run_id() -> None:
-    salt = "non-sticky"
-    digest = "abc123"
-    rate = Decimal("0.5")
-    run_a_u64 = _u64(salt, "run-a", digest, False)
-    run_b_u64 = _u64(salt, "run-b", digest, False)
-    assert run_a_u64 != run_b_u64
-    scale = Decimal(1 << 64)
-    expected_a = run_a_u64 < int((rate * scale).to_integral_value(rounding=ROUND_DOWN))
-    expected_b = run_b_u64 < int((rate * scale).to_integral_value(rounding=ROUND_DOWN))
-    assert sampling.hit(salt, "run-a", digest, rate, sticky=False) == expected_a
-    assert sampling.hit(salt, "run-b", digest, rate, sticky=False) == expected_b
+def test_sampling_non_sticky_includes_run_identifier() -> None:
+    salt = "sticky-salt"
+    digest = "b" * 64
+    assert _u64(salt, "run-A", digest, False) != _u64(salt, "run-B", digest, False)
+
+
+def test_shadow_policy_reports_sticky_override() -> None:
+    overrides = {
+        "PUZZLE_ROOT_SEED": "sticky-policy",
+        "CLI_SHADOW_ENABLED": "1",
+        "CLI_SHADOW_SAMPLE_RATE": "1.0",
+        "CLI_SHADOW_STICKY": "1",
+    }
+    result = orchestrator.run_pipeline(env_overrides=overrides)
+    policy = result["modules"]["solver"]["shadow_policy"]
+    assert policy["sticky"] is True

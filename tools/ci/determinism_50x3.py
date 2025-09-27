@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Sequence
+from typing import Dict, Iterable, List, Mapping, Sequence, Tuple, cast
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
@@ -34,6 +35,7 @@ class RunSnapshot:
     run_id: str
     artifacts: Dict[str, bytes]
     logs: List[Dict[str, object]]
+    digest_tuple: Tuple[str, str, str, str] | None
 
 
 def _read_seeds_file(path: Path) -> Sequence[str]:
@@ -106,50 +108,61 @@ def _snapshot(seed: str, profile: str, *, env: Dict[str, str] | None = None) -> 
     if env:
         overrides.update(env)
     result = orchestrator.run_pipeline(env_overrides=overrides)
-    artifacts = {}
+    artifacts: Dict[str, bytes] = {}
     for name, key in _ARTIFACT_TYPES.items():
         artifact_id = result.get(key)
         if isinstance(artifact_id, str):
             artifacts[name] = _canonical_artifact(artifact_id)
     logs = _load_shadow_logs(result.get("run_id", ""))
-    return RunSnapshot(seed=seed, run_id=result.get("run_id", "unknown"), artifacts=artifacts, logs=logs)
+    digest_tuple = _compute_digest_tuple(artifacts, result)
+    return RunSnapshot(
+        seed=seed,
+        run_id=result.get("run_id", "unknown"),
+        artifacts=artifacts,
+        logs=logs,
+        digest_tuple=digest_tuple,
+    )
+
+
+def _compute_digest_tuple(
+    artifacts: Mapping[str, bytes], result: Mapping[str, object]
+) -> Tuple[str, str, str, str] | None:
+    grid_payload = artifacts.get("CompleteGrid")
+    grid_digest = hashlib.sha256(grid_payload).hexdigest() if isinstance(grid_payload, bytes) else None
+
+    shadow_block = result.get("shadow")
+    shadow_event: Mapping[str, object] | None = None
+    if isinstance(shadow_block, Mapping):
+        event_candidate = shadow_block.get("event")
+        if isinstance(event_candidate, Mapping):
+            shadow_event = event_candidate
+
+    if not isinstance(shadow_event, Mapping):
+        return None
+
+    solve_digest = shadow_event.get("solve_trace_sha256")
+    state_digest = shadow_event.get("state_hash_sha256")
+    envelope_digest = shadow_event.get("envelope_jcs_sha256")
+
+    fields = (grid_digest, solve_digest, state_digest, envelope_digest)
+    if all(isinstance(value, str) and len(value) == 64 for value in fields):
+        return cast(Tuple[str, str, str, str], tuple(fields))
+    return None
 
 
 def _compare_snapshots(reference: RunSnapshot, candidate: RunSnapshot) -> List[Dict[str, object]]:
     disagreements: List[Dict[str, object]] = []
-    for name in _ARTIFACT_TYPES:
-        ref_bytes = reference.artifacts.get(name)
-        cand_bytes = candidate.artifacts.get(name)
-        if ref_bytes is None or cand_bytes is None:
-            if ref_bytes != cand_bytes:
-                disagreements.append({
-                    "seed": candidate.seed,
-                    "kind": "artifact",
-                    "details": {"artifact": name, "message": "missing artifact"},
-                })
-            continue
-        if ref_bytes != cand_bytes:
-            disagreements.append({
+    if reference.digest_tuple != candidate.digest_tuple:
+        disagreements.append(
+            {
                 "seed": candidate.seed,
-                "kind": "artifact",
-                "details": {"artifact": name, "message": "payload mismatch"},
-            })
-    if reference.logs or candidate.logs:
-        if len(reference.logs) != len(candidate.logs):
-            disagreements.append({
-                "seed": candidate.seed,
-                "kind": "log",
-                "details": {"message": "shadow log length mismatch", "expected": len(reference.logs), "actual": len(candidate.logs)},
-            })
-        else:
-            for index, (ref_entry, cand_entry) in enumerate(zip(reference.logs, candidate.logs)):
-                if ref_entry != cand_entry:
-                    disagreements.append({
-                        "seed": candidate.seed,
-                        "kind": "log",
-                        "details": {"index": index, "message": "shadow log entry mismatch"},
-                    })
-                    break
+                "kind": "digest",
+                "details": {
+                    "expected": reference.digest_tuple,
+                    "actual": candidate.digest_tuple,
+                },
+            }
+        )
     return disagreements
 
 

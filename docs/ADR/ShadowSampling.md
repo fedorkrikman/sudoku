@@ -33,6 +33,12 @@ Nova Solver выводится в тень поверх legacy-пайплайн�
   puzzle_digest, solver_primary, solver_shadow, verdict_status, time_ms_primary,
   time_ms_shadow, diff_summary, solved_ref_digest, sample_rate,
   solve_trace_sha256, state_hash_sha256, envelope_jcs_sha256}`.
+- `state_hash_sha256 = sha256(bytes(C) || bytes(G))`, где `C` — 81×9 матрица
+  флагов кандидатов (0/1), `G` — 81 байт фактической сетки (0..9). Хэш
+  вычисляется на стороне тени независимо от наличия `CompleteGrid`.
+- Гейт детерминизма сравнивает кортеж `H = (grid_sha256,
+  solve_trace_sha256, state_hash_sha256, envelope_jcs_sha256)` для каждого
+  сида.
 
 ### Parameters
 

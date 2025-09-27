@@ -13,7 +13,6 @@ from typing import Any, Dict, List, Mapping, Optional
 from artifacts import artifact_store
 from contracts import loader, validator
 from contracts.jsoncanon import jcs_dump
-from feature_flags import is_shadow_mode_enabled
 from ports import generator_port, printer_port, solver_port
 from project_config import get_section
 
@@ -23,14 +22,23 @@ _DEFAULT_OUTPUT_DIR = "exports"
 _SHADOW_BANNER_PRINTED = False
 
 
-def _emit_shadow_banner(config: Mapping[str, Any]) -> None:
+def _emit_shadow_banner(profile: str, config: Mapping[str, Any]) -> None:
     """Print the resolved shadow configuration with a canonical digest."""
 
     global _SHADOW_BANNER_PRINTED
     if _SHADOW_BANNER_PRINTED:
         return
 
-    canonical = jcs_dump(config)
+    payload = {
+        "profile": profile,
+        "shadow": {
+            "enabled": bool(config.get("enabled", False)),
+            "sample_rate_str": str(config.get("sample_rate", "0")),
+            "sticky": bool(config.get("sticky", False)),
+            "hash_salt_present": bool(str(config.get("hash_salt", "")).strip()),
+        },
+    }
+    canonical = jcs_dump(payload)
     digest = hashlib.sha256(canonical).hexdigest()
     print(f"[shadow] resolved config sha256-{digest}: {canonical.decode('utf-8')}")
     _SHADOW_BANNER_PRINTED = True
@@ -315,27 +323,30 @@ def run_pipeline(
 
     raw_policy = solver_module.config.get("shadow", {})
     shadow_policy = dict(raw_policy) if isinstance(raw_policy, Mapping) else {}
-    _emit_shadow_banner(shadow_policy)
+    _emit_shadow_banner(current_profile, shadow_policy)
 
-    shadow_enabled_policy = bool(shadow_policy.get("enabled"))
-    shadow_enabled_flag = is_shadow_mode_enabled(env_map)
-    shadow_enabled = shadow_enabled_policy or shadow_enabled_flag
-    sample_rate_raw = shadow_policy.get("sample_rate", solver_module.sample_rate)
-    sample_rate_decimal = _coerce_decimal(sample_rate_raw)
+    shadow_enabled = bool(shadow_policy.get("enabled", False))
+
+    sample_rate_value = shadow_policy.get("sample_rate")
+    sample_rate_decimal = _coerce_decimal(sample_rate_value)
     if sample_rate_decimal < Decimal("0"):
         sample_rate_decimal = Decimal("0")
     if sample_rate_decimal > Decimal("1"):
         sample_rate_decimal = Decimal("1")
-    if isinstance(sample_rate_raw, str) and sample_rate_raw:
-        sample_rate_str = sample_rate_raw
+    if isinstance(sample_rate_value, str) and sample_rate_value:
+        sample_rate_str = sample_rate_value
     else:
         sample_rate_str = str(sample_rate_decimal.normalize())
 
-    hash_salt = str(shadow_policy.get("hash_salt") or "")
+    hash_salt_raw = shadow_policy.get("hash_salt")
+    hash_salt = str(hash_salt_raw) if isinstance(hash_salt_raw, str) else str(hash_salt_raw or "")
     sticky = bool(shadow_policy.get("sticky", False))
 
+    if shadow_policy.get("sample_rate") != sample_rate_str:
+        shadow_policy = {**shadow_policy, "sample_rate": sample_rate_str}
+
     module_journal["solver"]["sample_rate"] = sample_rate_str
-    module_journal["solver"]["shadow_policy"] = shadow_policy
+    module_journal["solver"]["shadow_policy"] = dict(shadow_policy)
 
     if shadow_enabled and current_profile.lower() == "prod" and not hash_salt:
         raise RuntimeError("Shadow hash_salt must be configured for prod profile")

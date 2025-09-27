@@ -8,6 +8,18 @@ secondary = "novus"
 log_mismatch = true
 budget_ms_p95 = 50
 
+[shadow.by_profile.test]
+sample_rate = "0.25"
+hash_salt = "test-seed"
+
+[shadow.by_profile.pilot]
+sample_rate = "1.0"
+hash_salt = "pilot-seed"
+
+[shadow.by_profile.prod]
+sample_rate = "0.0"
+hash_salt = "prod-salt"
+
 # Backwards compatibility for legacy flag loader.
 [shadow_mode]
 enabled = false

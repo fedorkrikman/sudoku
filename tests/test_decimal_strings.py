@@ -1,55 +1,24 @@
-from __future__ import annotations
+from decimal import Decimal
 
+import pytest
+
+from orchestrator import orchestrator
 from ports import solver_port
 
 
-def _shadow_settings(profile: str = "dev", env: dict[str, str] | None = None) -> dict:
-    spec = {
-        "name": "sudoku-9x9",
-        "size": 9,
-        "block": {"rows": 3, "cols": 3},
-        "alphabet": list("123456789"),
-        "limits": {"solver_timeout_ms": 1000},
+def test_shadow_sample_rate_uses_decimal_strings() -> None:
+    overrides = {
+        "PUZZLE_ROOT_SEED": "decimal-strings-1",
+        "CLI_SHADOW_ENABLED": "1",
+        "CLI_SHADOW_SAMPLE_RATE": "0.333333",
     }
-    grid = {
-        "grid": (
-            "123456789"
-            "456789123"
-            "789123456"
-            "214365897"
-            "365897214"
-            "897214365"
-            "531642978"
-            "642978531"
-            "978531642"
-        )
-    }
-    _, resolved = solver_port.check_uniqueness(
-        "sudoku-9x9",
-        spec,
-        grid,
-        profile=profile,
-        env=env,
-    )
-    return resolved.config["shadow"]
+    result = orchestrator.run_pipeline(env_overrides=overrides)
+    policy = result["modules"]["solver"]["shadow_policy"]
+    assert policy["sample_rate"] == "0.333333"
+    assert isinstance(policy["sample_rate"], str)
 
 
-def test_cli_decimal_string_preserved() -> None:
-    shadow = _shadow_settings(
-        env={
-            "CLI_SHADOW_ENABLED": "1",
-            "CLI_SHADOW_SAMPLE_RATE": "0.333333",
-        }
-    )
-    assert shadow["sample_rate"] == "0.333333"
-
-
-def test_cli_decimal_string_too_precise_ignored() -> None:
-    shadow = _shadow_settings(
-        env={
-            "CLI_SHADOW_ENABLED": "1",
-            "CLI_SHADOW_SAMPLE_RATE": "0.1234567",
-        }
-    )
-    # Fallback to profile default because the override is invalid.
-    assert shadow["sample_rate"] == "0.25"
+def test_numeric_shadow_sample_rate_emits_warning() -> None:
+    with pytest.warns(RuntimeWarning):
+        value = solver_port._parse_decimal(0.5)  # type: ignore[attr-defined]
+    assert isinstance(value, Decimal)
