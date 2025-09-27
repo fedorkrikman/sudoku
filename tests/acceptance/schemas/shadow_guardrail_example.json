@@ -26,5 +26,5 @@
   "nodes": 250000,
   "bt_depth": 64,
   "time_ms": 2050,
-  "limit_hit": "time_ms+nodes"
+  "limit_hit": "nodes+time_ms"
 }

@@ -39,12 +39,16 @@ def test_shadow_event_payload_contains_required_fields() -> None:
     assert event["run_id"] == result["run_id"]
     assert event["solver_primary"] == "legacy"
     assert event["solver_shadow"] == "novus"
+<<<<<<< ours
     if event["type"] == "sudoku.shadow_sample.v1":
         assert event["verdict_status"] == "match"
         assert "taxonomy" not in event
     else:
         assert event["verdict_status"] in {"mismatch", "budget_exhausted"}
         assert "taxonomy" in event
+=======
+    assert event["verdict_status"] == "ok"
+>>>>>>> theirs
     assert isinstance(event["sample_rate"], str)
     assert len(event["puzzle_digest"]) == 64
     assert len(event["solve_trace_sha256"]) == 64
@@ -52,5 +56,9 @@ def test_shadow_event_payload_contains_required_fields() -> None:
     assert len(event["envelope_jcs_sha256"]) == 64
     assert isinstance(event["time_ms_primary"], int)
     assert isinstance(event["time_ms_shadow"], int)
+<<<<<<< ours
     assert isinstance(event.get("solved_ref_digest"), str)
+=======
+    assert isinstance(event["solved_ref_digest"], str)
+>>>>>>> theirs
     assert event["ts_iso8601"].endswith("Z")

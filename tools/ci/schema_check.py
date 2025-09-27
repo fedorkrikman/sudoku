@@ -39,19 +39,38 @@ def _load_schema(path: Path) -> Mapping[str, Any]:
         raise SystemExit(f"invalid schema JSON: {exc}")
 
 
-def _expect_type(value: Any, schema: Mapping[str, Any], label: str) -> None:
+def _type_options(schema: Mapping[str, Any]) -> set[str]:
     expected = schema.get("type")
-    if expected == "object":
-        if not isinstance(value, Mapping):
-            raise ValueError(f"{label} must be an object")
-    elif expected == "string":
-        if not isinstance(value, str):
-            raise ValueError(f"{label} must be a string")
-    elif expected == "integer":
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise ValueError(f"{label} must be an integer")
-    elif expected is not None:
-        raise ValueError(f"unsupported schema type '{expected}' for {label}")
+    if expected is None:
+        return set()
+    if isinstance(expected, str):
+        return {expected}
+    return {str(item) for item in expected if isinstance(item, str)}
+
+
+def _expect_type(value: Any, schema: Mapping[str, Any], label: str) -> None:
+    options = _type_options(schema)
+    if not options:
+        return
+
+    if value is None:
+        if "null" in options:
+            return
+        raise ValueError(f"{label} must not be null")
+
+    if "object" in options and isinstance(value, Mapping):
+        return
+    if "array" in options and isinstance(value, list):
+        return
+    if "string" in options and isinstance(value, str):
+        return
+    if "integer" in options and isinstance(value, int) and not isinstance(value, bool):
+        return
+    if "number" in options and isinstance(value, (int, float)) and not isinstance(value, bool):
+        return
+
+    allowed = ", ".join(sorted(options))
+    raise ValueError(f"{label} must be one of types {{{allowed}}}")
 
 
 def _check_string(value: str, schema: Mapping[str, Any], label: str) -> None:
@@ -71,6 +90,8 @@ def _check_string(value: str, schema: Mapping[str, Any], label: str) -> None:
 def _check_integer(value: int, schema: Mapping[str, Any], label: str) -> None:
     if "minimum" in schema and value < int(schema["minimum"]):
         raise ValueError(f"{label} must be >= {schema['minimum']}")
+    if "maximum" in schema and value > int(schema["maximum"]):
+        raise ValueError(f"{label} must be <= {schema['maximum']}")
     const = schema.get("const")
     if const is not None and value != const:
         raise ValueError(f"{label} must equal {const}")
@@ -115,16 +136,24 @@ def _validate_object(event: Mapping[str, Any], schema: Mapping[str, Any], label:
         value = event[key]
         sublabel = f"{label}.{key}" if label else key
         _expect_type(value, subschema, sublabel)
-        expected_type = subschema.get("type")
-        if expected_type == "object":
+        if value is None:
+            continue
+        expected_types = _type_options(subschema)
+        if "object" in expected_types and isinstance(value, Mapping):
             _validate_object(value, subschema, sublabel)
-        elif expected_type == "string":
+        elif "string" in expected_types and isinstance(value, str):
             _check_string(value, subschema, sublabel)
-        elif expected_type == "integer":
+        elif "integer" in expected_types and isinstance(value, int) and not isinstance(value, bool):
             _check_integer(value, subschema, sublabel)
+        elif "number" in expected_types and isinstance(value, (int, float)) and not isinstance(value, bool):
+            if "minimum" in subschema and value < float(subschema["minimum"]):
+                raise ValueError(f"{sublabel} must be >= {subschema['minimum']}")
+            if "maximum" in subschema and value > float(subschema["maximum"]):
+                raise ValueError(f"{sublabel} must be <= {subschema['maximum']}")
         else:
-            if "const" in subschema and value != subschema["const"]:
-                raise ValueError(f"{sublabel} must equal {subschema['const']!r}")
+            const = subschema.get("const")
+            if const is not None and value != const:
+                raise ValueError(f"{sublabel} must equal {const!r}")
 
     additional = schema.get("additionalProperties", True)
     if additional is False:

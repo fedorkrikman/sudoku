@@ -118,6 +118,13 @@ _TAXONOMY: Mapping[str, Mapping[str, str]] = {
 _GUARDRAIL_LIMITS = {"nodes": 200_000, "bt_depth": 60, "time_ms": 2_000}
 
 
+def _normalize_solver_name(name: str | None, *, default: str) -> str:
+    candidate = (name or "").strip().lower()
+    if candidate in {"legacy", "novus"}:
+        return candidate
+    return default
+
+
 @lru_cache(maxsize=1)
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[2]
@@ -429,8 +436,11 @@ def _build_shadow_event(
     puzzle_hex = _normalize_required_hex(puzzle_digest, fallback="0" * 64)
 
     event_type = "sudoku.shadow_mismatch.v1"
-    if taxonomy is None and verdict_status == "match":
+    if taxonomy is None and verdict_status == "ok":
         event_type = "sudoku.shadow_sample.v1"
+
+    solver_primary = _normalize_solver_name(task.primary_impl, default="legacy")
+    solver_shadow = _normalize_solver_name(task.secondary_impl, default="novus")
 
     event: Dict[str, Any] = {
         "type": event_type,
@@ -441,8 +451,8 @@ def _build_shadow_event(
         "hw_fingerprint": hw_fp,
         "profile": task.profile,
         "puzzle_digest": puzzle_hex,
-        "solver_primary": task.primary_impl,
-        "solver_shadow": task.secondary_impl,
+        "solver_primary": solver_primary,
+        "solver_shadow": solver_shadow,
         "verdict_status": verdict_status,
         "time_ms_primary": _round_ms(float(timings.get("candidate_ms", 0.0))),
         "time_ms_shadow": _round_ms(float(timings.get("baseline_ms", 0.0))),
@@ -634,7 +644,7 @@ def run_with_shadow(task: ShadowTask) -> ShadowResult:
     taxonomy_entry: Mapping[str, str] | None = None
     severity = "NONE"
     kind = "none"
-    verdict_status = "match"
+    verdict_status = "ok"
     diff_summary = "none"
 
     if guardrail_payload is not None:

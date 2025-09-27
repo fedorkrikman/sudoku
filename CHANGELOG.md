@@ -1,5 +1,7 @@
 # Changelog
 
+> Verified on 2025-09-27
+
 # Unreleased
 
 **Compatibility:** shadow mismatch schema v1 with guardrail telemetry.

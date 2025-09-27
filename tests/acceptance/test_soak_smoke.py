@@ -37,7 +37,7 @@ def test_soak_runner_produces_summary(tmp_path, monkeypatch) -> None:
             "puzzle_digest": "f" * 64,
             "solver_primary": "legacy",
             "solver_shadow": "novus",
-            "verdict_status": "match",
+            "verdict_status": "ok",
             "time_ms_primary": 5,
             "time_ms_shadow": 6,
             "diff_summary": "none",

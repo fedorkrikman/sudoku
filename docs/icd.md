@@ -50,7 +50,7 @@ and the baseline legacy solver without changing public contracts.
   - ``sample_rate`` + дайджесты ``solve_trace_sha256``, ``state_hash_sha256``, ``envelope_jcs_sha256``.
   - При срабатывании защитных лимитов (``nodes`` > 200k, ``bt_depth`` > 60, ``time_ms`` > 2000) добавляются поля
     ``nodes``, ``bt_depth``, ``time_ms``, ``limit_hit`` и статус ``verdict_status = budget_exhausted`` (таксономия ``C4``).
-* Совпадения фиксируются ``sudoku.shadow_sample.v1`` (те же поля без ``taxonomy`` и защитных метрик).
+* Совпадения фиксируются ``sudoku.shadow_sample.v1`` (те же поля без ``taxonomy`` и защитных метрик, ``verdict_status="ok"``).
 * Агрегированные счётчики:
   - ``shadow_ok`` – совпадение primary и shadow.
   - ``shadow_mismatch_{CODE}`` – количество несоответствий по коду ``C1``..``C6``.
