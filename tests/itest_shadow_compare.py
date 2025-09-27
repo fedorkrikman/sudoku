@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 
 import pytest
 
@@ -20,7 +21,7 @@ def configure_log(tmp_path):
     return tmp_path
 
 
-def _make_task(*, sample_rate: float, guardrail=None) -> ShadowTask:
+def _make_task(*, sample_rate: Decimal, guardrail=None) -> ShadowTask:
     envelope = make_envelope(profile="dev", solver_id="solver", commit_sha="abc123")
 
     def baseline_runner() -> ShadowRun:
@@ -37,7 +38,9 @@ def _make_task(*, sample_rate: float, guardrail=None) -> ShadowTask:
         module_id="solver:novus",
         profile="dev",
         sample_rate=sample_rate,
+        sample_rate_str=str(sample_rate.normalize()),
         hash_salt="salt",
+        sticky=False,
         baseline_runner=baseline_runner,
         candidate_runner=candidate_runner,
         guardrail=guardrail,
@@ -45,7 +48,7 @@ def _make_task(*, sample_rate: float, guardrail=None) -> ShadowTask:
 
 
 def test_run_with_shadow_logs_event(tmp_path):
-    task = _make_task(sample_rate=1.0)
+    task = _make_task(sample_rate=Decimal("1"))
     result = run_with_shadow(task)
 
     assert result.sampled is True
@@ -62,14 +65,14 @@ def test_guardrail_triggers_fallback(tmp_path):
     def guardrail(ctx: GuardrailContext) -> bool:
         return True
 
-    task = _make_task(sample_rate=1.0, guardrail=guardrail)
+    task = _make_task(sample_rate=Decimal("1"), guardrail=guardrail)
     result = run_with_shadow(task)
     assert result.fallback_used is True
     assert result.returned == result.baseline
 
 
 def test_no_sample_skips_logging(tmp_path):
-    task = _make_task(sample_rate=0.0)
+    task = _make_task(sample_rate=Decimal("0"))
     result = run_with_shadow(task)
     assert result.sampled is False
     assert result.event_path is None

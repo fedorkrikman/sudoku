@@ -29,6 +29,10 @@ def test_shadow_event_payload_contains_required_fields() -> None:
         "time_ms_shadow",
         "diff_summary",
         "solved_ref_digest",
+        "sample_rate",
+        "solve_trace_sha256",
+        "state_hash_sha256",
+        "envelope_jcs_sha256",
     }
     assert required.issubset(event.keys())
 
@@ -36,6 +40,11 @@ def test_shadow_event_payload_contains_required_fields() -> None:
     assert event["solver_primary"] == "legacy"
     assert event["solver_shadow"] == "novus"
     assert event["verdict_status"] == "match"
+    assert isinstance(event["sample_rate"], str)
+    assert len(event["puzzle_digest"]) == 64
+    assert len(event["solve_trace_sha256"]) == 64
+    assert len(event["state_hash_sha256"]) == 64
+    assert len(event["envelope_jcs_sha256"]) == 64
     assert isinstance(event["time_ms_primary"], float)
     assert isinstance(event["time_ms_shadow"], float)
     assert isinstance(event["solved_ref_digest"], str)

@@ -8,12 +8,13 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable, Dict, Mapping, MutableMapping, Tuple
+from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Tuple
 
 from contracts.envelope import Envelope, envelope_to_dict, make_envelope
-from contracts.jsoncanon import jcs_sha256
+from contracts.jsoncanon import jcs_dump, jcs_sha256
 
 from . import log, sampling
 from .router import ResolvedModule, resolve
@@ -57,10 +58,12 @@ class ShadowTask:
     seed: str
     module_id: str
     profile: str
-    sample_rate: float
+    sample_rate: Decimal
+    sample_rate_str: str
     hash_salt: str | None
     baseline_runner: Callable[[], ShadowRun]
     candidate_runner: Callable[[], ShadowRun]
+    sticky: bool = False
     guardrail: Callable[[GuardrailContext], bool] | None = None
     classifier: Callable[[ShadowRun, ShadowRun], Tuple[str, str]] | None = None
     metadata: Mapping[str, Any] | None = None
@@ -68,6 +71,7 @@ class ShadowTask:
     primary_impl: str = "legacy"
     secondary_impl: str = "novus"
     log_mismatch: bool = True
+    complete_artifact: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -140,6 +144,171 @@ def _extract_solved_ref(payload: Mapping[str, Any]) -> str | None:
     if isinstance(candidate, str) and candidate:
         return candidate
     return None
+
+
+def _canonical_digest(obj: Any) -> str:
+    return hashlib.sha256(jcs_dump(obj)).hexdigest()
+
+
+def _solve_trace_digest(payload: Mapping[str, Any] | None) -> str:
+    trace: Any = {}
+    if isinstance(payload, Mapping):
+        trace = payload.get("trace", {})
+    return _canonical_digest(trace)
+
+
+def _envelope_digest(envelope: Envelope) -> str:
+    return _canonical_digest(envelope_to_dict(envelope))
+
+
+def _string_to_digits(value: str) -> list[int]:
+    digits: list[int] = []
+    for char in value:
+        if char.isdigit():
+            digits.append(int(char))
+        elif char == ".":
+            digits.append(0)
+        if len(digits) == 81:
+            break
+    return digits
+
+
+def _grid_from_source(source: Any) -> list[int] | None:
+    if isinstance(source, str):
+        digits = _string_to_digits(source)
+        if len(digits) == 81:
+            return digits
+        return None
+    if isinstance(source, Iterable) and not isinstance(source, (bytes, bytearray, str, Mapping)):
+        digits: list[int] = []
+        for item in source:
+            if isinstance(item, str):
+                digits.extend(_string_to_digits(item))
+            elif isinstance(item, (int, float)):
+                digits.append(int(item))
+            if len(digits) >= 81:
+                break
+        if len(digits) >= 81:
+            return digits[:81]
+    return None
+
+
+def _extract_grid_digits(
+    payload: Mapping[str, Any] | None,
+    complete_artifact: Mapping[str, Any] | None,
+) -> list[int]:
+    sources: list[Any] = []
+    if isinstance(payload, Mapping):
+        sources.append(payload.get("grid"))
+    if isinstance(complete_artifact, Mapping):
+        sources.append(complete_artifact.get("grid"))
+    for source in sources:
+        digits = _grid_from_source(source)
+        if digits is not None:
+            padded = digits + [0] * max(0, 81 - len(digits))
+            return padded[:81]
+    return [0] * 81
+
+
+def _index_from_label(label: Any) -> int | None:
+    if isinstance(label, int):
+        if 0 <= label < 81:
+            return label
+        return None
+    if isinstance(label, str):
+        stripped = label.strip().lower()
+        if stripped.isdigit():
+            idx = int(stripped)
+            if 0 <= idx < 81:
+                return idx
+        if stripped.startswith("r") and "c" in stripped:
+            try:
+                row_str, col_str = stripped[1:].split("c", 1)
+            except ValueError:
+                return None
+            if row_str.isdigit() and col_str.isdigit():
+                row = int(row_str) - 1
+                col = int(col_str) - 1
+                if 0 <= row < 9 and 0 <= col < 9:
+                    return row * 9 + col
+    return None
+
+
+def _iter_candidate_digits(values: Any) -> Iterable[int]:
+    if isinstance(values, str):
+        for char in values:
+            if char.isdigit():
+                yield int(char)
+    elif isinstance(values, Iterable) and not isinstance(values, (bytes, bytearray, str, Mapping)):
+        for item in values:
+            yield from _iter_candidate_digits(item)
+    else:
+        try:
+            number = int(values)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return
+        else:
+            yield number
+
+
+def _candidate_matrix(payload: Mapping[str, Any] | None) -> list[list[int]] | None:
+    if not isinstance(payload, Mapping):
+        return None
+    raw = payload.get("candidates")
+    if raw is None:
+        return None
+
+    matrix: list[list[int]] = [[0] * 9 for _ in range(81)]
+    applied = False
+
+    def apply(idx: int, values: Any) -> None:
+        nonlocal applied
+        if not (0 <= idx < 81):
+            return
+        cell = matrix[idx]
+        for digit in _iter_candidate_digits(values):
+            if 1 <= digit <= 9:
+                cell[digit - 1] = 1
+                applied = True
+
+    if isinstance(raw, Mapping):
+        for key, values in raw.items():
+            idx = _index_from_label(key)
+            if idx is None:
+                continue
+            apply(idx, values)
+    elif isinstance(raw, Iterable) and not isinstance(raw, (bytes, bytearray, str)):
+        entries = list(raw)
+        if len(entries) == 81:
+            for idx, values in enumerate(entries):
+                apply(idx, values)
+    else:
+        return None
+
+    return matrix if applied else None
+
+
+def _state_hash_digest(
+    payload: Mapping[str, Any] | None,
+    complete_artifact: Mapping[str, Any] | None,
+) -> str:
+    digits = _extract_grid_digits(payload, complete_artifact)
+    matrix = _candidate_matrix(payload)
+    if matrix is None:
+        matrix = [[0] * 9 for _ in range(81)]
+        for idx, digit in enumerate(digits[:81]):
+            if 1 <= digit <= 9:
+                matrix[idx][digit - 1] = 1
+
+    flags = [value for row in matrix for value in row]
+    if len(flags) < 81 * 9:
+        flags.extend([0] * (81 * 9 - len(flags)))
+    elif len(flags) > 81 * 9:
+        flags = flags[: 81 * 9]
+
+    grid_bytes = bytes(max(0, min(9, int(digit))) for digit in digits[:81])
+    candidate_bytes = bytes(flags)
+    return hashlib.sha256(candidate_bytes + grid_bytes).hexdigest()
 
 
 def _build_shadow_event(
@@ -263,7 +432,7 @@ def _build_event(
         "seed": task.seed,
         "module_id": task.module_id,
         "profile": task.profile,
-        "sample_rate": task.sample_rate,
+        "sample_rate": task.sample_rate_str,
         "severity": severity,
         "kind": kind,
         "digests": {
@@ -290,13 +459,25 @@ def run_with_shadow(task: ShadowTask) -> ShadowResult:
     candidate, cand_ms = _execute_runner(task.candidate_runner)
     candidate_digest = jcs_sha256(candidate.result_artifact)
 
+    metadata = task.metadata or {}
+    puzzle_digest = metadata.get("puzzle_digest")
+    puzzle_digest_str = puzzle_digest if isinstance(puzzle_digest, str) else None
+
+    solve_trace_digest = _solve_trace_digest(
+        candidate.result_artifact if isinstance(candidate.result_artifact, Mapping) else None
+    )
+    state_hash_digest = _state_hash_digest(
+        candidate.result_artifact if isinstance(candidate.result_artifact, Mapping) else None,
+        task.complete_artifact,
+    )
+    envelope_digest = _envelope_digest(task.envelope)
+
     sampled = sampling.hit(
-        task.hash_salt,
-        task.run_id,
-        task.stage,
-        task.seed,
-        task.module_id,
-        task.sample_rate,
+        hash_salt=task.hash_salt,
+        run_id=task.run_id,
+        puzzle_digest=puzzle_digest_str,
+        rate=task.sample_rate,
+        sticky=task.sticky,
     )
 
     if not sampled:
@@ -308,12 +489,20 @@ def run_with_shadow(task: ShadowTask) -> ShadowResult:
             "seed": task.seed,
             "module_id": task.module_id,
             "profile": task.profile,
-            "sample_rate": task.sample_rate,
+            "sample_rate": task.sample_rate_str,
             "severity": "NONE",
             "kind": "none",
             "sampled": False,
             "digests": {"baseline": None, "candidate": candidate_digest},
             "timings": timings,
+        }
+        if puzzle_digest_str:
+            event_payload = {**event_payload, "puzzle_digest": puzzle_digest_str}
+        event_payload = {
+            **event_payload,
+            "solve_trace_sha256": solve_trace_digest,
+            "state_hash_sha256": state_hash_digest,
+            "envelope_jcs_sha256": envelope_digest,
         }
         return ShadowResult(
             sampled=False,
@@ -353,6 +542,15 @@ def run_with_shadow(task: ShadowTask) -> ShadowResult:
         baseline=baseline,
         candidate=candidate,
     )
+    if puzzle_digest_str:
+        event_payload = {**event_payload, "puzzle_digest": puzzle_digest_str}
+    event_payload = {
+        **event_payload,
+        "sample_rate": task.sample_rate_str,
+        "solve_trace_sha256": solve_trace_digest,
+        "state_hash_sha256": state_hash_digest,
+        "envelope_jcs_sha256": envelope_digest,
+    }
     event_path: Path | None = None
     if severity != "NONE" and task.log_mismatch:
         event_path = log.append_event(event_payload)
@@ -398,8 +596,10 @@ def run_shadow_check(
     seed: str,
     profile: str,
     module: ResolvedModule,
-    sample_rate: float,
+    sample_rate: Decimal,
+    sample_rate_str: str,
     hash_salt: str | None,
+    sticky: bool,
     spec_artifact: Mapping[str, Any],
     complete_artifact: Mapping[str, Any],
     primary_payload: Mapping[str, Any],
@@ -444,9 +644,10 @@ def run_shadow_check(
     if isinstance(complete_artifact, Mapping):
         digest_candidate = complete_artifact.get("artifact_id")
         if isinstance(digest_candidate, str) and digest_candidate:
-            puzzle_digest = digest_candidate
+            puzzle_digest = digest_candidate.split("-", 1)[1] if digest_candidate.startswith("sha256-") else digest_candidate
         else:
-            puzzle_digest = jcs_sha256(dict(complete_artifact))
+            fallback_digest = jcs_sha256(dict(complete_artifact))
+            puzzle_digest = fallback_digest.split("-", 1)[1]
 
     metadata: Dict[str, Any] = {
         "puzzle_kind": puzzle_kind,
@@ -463,7 +664,9 @@ def run_shadow_check(
         module_id=module.module_id,
         profile=profile,
         sample_rate=sample_rate,
+        sample_rate_str=sample_rate_str,
         hash_salt=hash_salt,
+        sticky=sticky,
         baseline_runner=baseline_runner,
         candidate_runner=candidate_runner,
         metadata=metadata,
@@ -471,6 +674,7 @@ def run_shadow_check(
         primary_impl=module.impl_id,
         secondary_impl=str(shadow_config.get("secondary", "novus")),
         log_mismatch=bool(shadow_config.get("log_mismatch", True)),
+        complete_artifact=complete_artifact,
     )
 
     result = run_with_shadow(task)

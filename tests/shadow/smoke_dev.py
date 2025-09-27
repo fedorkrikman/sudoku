@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 
 from contracts.envelope import make_envelope
 from orchestrator import log as shadow_log
@@ -16,8 +17,10 @@ def test_shadow_sample_skip(tmp_path):
         seed="seed",
         module_id="solver:novus",
         profile="dev",
-        sample_rate=0.0,
+        sample_rate=Decimal("0"),
+        sample_rate_str="0",
         hash_salt="salt",
+        sticky=False,
         baseline_runner=lambda: ShadowRun(verdict="ok", result_artifact={"grid": "123"}),
         candidate_runner=lambda: ShadowRun(verdict="ok", result_artifact={"grid": "123"}),
     )
@@ -39,8 +42,10 @@ def test_shadow_logs_event(tmp_path):
         seed="seed",
         module_id="solver:novus",
         profile="dev",
-        sample_rate=1.0,
+        sample_rate=Decimal("1"),
+        sample_rate_str="1",
         hash_salt="salt",
+        sticky=False,
         baseline_runner=lambda: baseline,
         candidate_runner=lambda: candidate,
     )

@@ -9,6 +9,11 @@
   `test_shadow_bounds`, `test_shadow_event_shape`, `test_shadow_metrics`).
 - docs: README/STRATEGY/CODEX_GUIDE/GOALS_ROADMAP/ADR обновлены (ALG acceptance
   2025-09-27, поля события, приоритеты shadow).
+- feat(shadow): переход на SHA-256 хэши состояния/трейсов/конфигурации,
+  поддержка sticky-семплирования и десятичных строк `sample_rate`, баннер
+  конфигурации при старте и фатальный контроль пустого `hash_salt` в prod.
+- test: добавлены проверки десятичных строк, sticky-семплера и sha256-линтов;
+  существующие тесты обновлены под строковые sample_rate и новые события.
 
 # 2025-09-26 — feat(orchestrator): shadow compare runtime & tooling
 

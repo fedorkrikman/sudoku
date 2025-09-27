@@ -170,6 +170,15 @@ NFR и shadow-отчёты описаны в [docs/STRATEGY.md](docs/STRATEGY.md
 Сводка по политике совместимости и миграциям вынесена в файл
 [`MIGRATIONS.md`](MIGRATIONS.md). Новые несовместимые изменения требуют ADR и
 документирования шагов миграции до релиза.
+
+> Verified on 2025-09-27
+
+- Shadow comparison artifacts emit `sha256` hex digests (64 lowercase characters)
+  for puzzle, trace, state and envelope fingerprints. Legacy `sha1` digests are
+  no longer produced.
+- Shadow sampling configuration now expects decimal strings (dot separator,
+  ≤6 fractional digits). Numeric overrides continue to work with a deprecation
+  warning during the transition period.
 ## Documentation
 
 - [Стратегия развития](./docs/STRATEGY.md)

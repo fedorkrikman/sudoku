@@ -1,6 +1,8 @@
 [shadow]
 enabled = false
-sample_rate = 0.25
+sample_rate = "0.25"
+hash_salt = "dev-seed"
+sticky = false
 primary = "legacy"
 secondary = "novus"
 log_mismatch = true

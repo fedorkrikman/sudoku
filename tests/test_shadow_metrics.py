@@ -27,4 +27,4 @@ def test_shadow_counters_ok_when_sampled() -> None:
     assert counters["shadow_ok"] == 1
     shadow_policy = result["modules"]["solver"]["shadow_policy"]
     assert shadow_policy["enabled"] is True
-    assert shadow_policy["sample_rate"] == 1.0
+    assert shadow_policy["sample_rate"] == "1.0"

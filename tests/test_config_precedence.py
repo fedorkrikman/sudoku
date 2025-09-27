@@ -44,28 +44,43 @@ def test_config_precedence_defaults() -> None:
     assert shadow["enabled"] is False
     assert shadow["secondary"] == "novus"
     assert shadow["primary"] == "legacy"
-    assert shadow["sample_rate"] == 0.0
+    assert shadow["sample_rate"] == "0"
+    assert shadow["hash_salt"] == "dev-seed"
+    assert shadow["sticky"] is False
 
 
 def test_environment_overrides_toml() -> None:
-    shadow = _shadow_settings(env={"SHADOW_ENABLED": "1", "SHADOW_SAMPLE_RATE": "0.9"})
+    shadow = _shadow_settings(
+        env={
+            "SHADOW_ENABLED": "1",
+            "SHADOW_SAMPLE_RATE": "0.9",
+            "SHADOW_HASH_SALT": "env-salt",
+        }
+    )
     assert shadow["enabled"] is True
-    assert shadow["sample_rate"] == 0.9
+    assert shadow["sample_rate"] == "0.9"
+    assert shadow["hash_salt"] == "env-salt"
 
 
 def test_cli_overrides_environment() -> None:
     env = {
         "SHADOW_ENABLED": "0",
         "SHADOW_SAMPLE_RATE": "0.75",
+        "SHADOW_HASH_SALT": "env-salt",
+        "SHADOW_STICKY": "0",
         "CLI_SHADOW_ENABLED": "1",
         "CLI_SHADOW_SAMPLE_RATE": "0.5",
+        "CLI_SHADOW_HASH_SALT": "cli-salt",
+        "CLI_SHADOW_STICKY": "1",
     }
     shadow = _shadow_settings(env=env)
     assert shadow["enabled"] is True
-    assert shadow["sample_rate"] == 0.5
+    assert shadow["sample_rate"] == "0.5"
+    assert shadow["hash_salt"] == "cli-salt"
+    assert shadow["sticky"] is True
 
 
 def test_profile_defaults_for_prod() -> None:
     shadow = _shadow_settings(profile="prod")
-    assert shadow["sample_rate"] == 0.0
+    assert shadow["sample_rate"] == "0"
     assert shadow["enabled"] is False

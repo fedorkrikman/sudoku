@@ -41,12 +41,12 @@ def _shadow(profile: str = "dev", env: dict[str, str] | None = None) -> dict:
 
 def test_sample_rate_is_clamped_high() -> None:
     shadow = _shadow(env={"SHADOW_SAMPLE_RATE": "2.5", "SHADOW_ENABLED": "1"})
-    assert shadow["sample_rate"] == 1.0
+    assert shadow["sample_rate"] == "1"
 
 
 def test_sample_rate_is_clamped_low() -> None:
     shadow = _shadow(env={"SHADOW_SAMPLE_RATE": "-0.5", "SHADOW_ENABLED": "1"})
-    assert shadow["sample_rate"] == 0.0
+    assert shadow["sample_rate"] == "0"
 
 
 def test_budget_override_accepts_positive_values() -> None:

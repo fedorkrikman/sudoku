@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Mapping, Optional
 
 from artifacts import artifact_store
 from contracts import loader, validator
+from contracts.jsoncanon import jcs_dump
 from feature_flags import is_shadow_mode_enabled
 from ports import generator_port, printer_port, solver_port
 from project_config import get_section
@@ -17,6 +20,36 @@ from project_config import get_section
 from .shadow_compare import run_shadow_check
 
 _DEFAULT_OUTPUT_DIR = "exports"
+_SHADOW_BANNER_PRINTED = False
+
+
+def _emit_shadow_banner(config: Mapping[str, Any]) -> None:
+    """Print the resolved shadow configuration with a canonical digest."""
+
+    global _SHADOW_BANNER_PRINTED
+    if _SHADOW_BANNER_PRINTED:
+        return
+
+    canonical = jcs_dump(config)
+    digest = hashlib.sha256(canonical).hexdigest()
+    print(f"[shadow] resolved config sha256-{digest}: {canonical.decode('utf-8')}")
+    _SHADOW_BANNER_PRINTED = True
+
+
+def _coerce_decimal(value: Any) -> Decimal:
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            return Decimal(value)
+        except InvalidOperation:
+            return Decimal("0")
+    if isinstance(value, (int, float)):
+        try:
+            return Decimal(str(value))
+        except InvalidOperation:
+            return Decimal("0")
+    return Decimal("0")
 
 
 def _deterministic_created_at(seed: str, stage: str) -> str:
@@ -68,14 +101,6 @@ def _merge_env(overrides: Mapping[str, str] | None = None) -> Dict[str, str]:
     return env
 
 
-def _extract_shadow_hash_salt(env: Mapping[str, str]) -> str | None:
-    for key in ("PUZZLE_SHADOW_HASH_SALT", "SHADOW_HASH_SALT"):
-        value = env.get(key)
-        if isinstance(value, str) and value:
-            return value
-    return None
-
-
 def _coerce_bool(value: str | bool | None) -> Optional[bool]:
     if isinstance(value, bool):
         return value
@@ -97,7 +122,7 @@ def _cli_shadow_overrides(args: argparse.Namespace) -> Dict[str, str]:
         payload["CLI_SHADOW_ENABLED"] = "0"
 
     if getattr(args, "shadow_sample_rate", None) is not None:
-        payload["CLI_SHADOW_SAMPLE_RATE"] = f"{float(args.shadow_sample_rate):.8f}"
+        payload["CLI_SHADOW_SAMPLE_RATE"] = str(args.shadow_sample_rate)
 
     if getattr(args, "shadow_log_mismatch", None) is not None:
         maybe = _coerce_bool(args.shadow_log_mismatch)
@@ -106,6 +131,15 @@ def _cli_shadow_overrides(args: argparse.Namespace) -> Dict[str, str]:
 
     if getattr(args, "shadow_budget_ms_p95", None) is not None:
         payload["CLI_SHADOW_BUDGET_MS_P95"] = str(int(args.shadow_budget_ms_p95))
+
+    if getattr(args, "shadow_hash_salt", None) is not None:
+        payload["CLI_SHADOW_HASH_SALT"] = str(args.shadow_hash_salt)
+
+    sticky_flag = getattr(args, "shadow_sticky", None)
+    if sticky_flag is True:
+        payload["CLI_SHADOW_STICKY"] = "1"
+    elif sticky_flag is False:
+        payload["CLI_SHADOW_STICKY"] = "0"
 
     return payload
 
@@ -279,13 +313,32 @@ def run_pipeline(
     verdict_id = _finalise_and_store(verdict_artifact, "Verdict", current_profile)
     results["verdict_id"] = verdict_id
 
-    shadow_policy = solver_module.config.get("shadow", {})
+    raw_policy = solver_module.config.get("shadow", {})
+    shadow_policy = dict(raw_policy) if isinstance(raw_policy, Mapping) else {}
+    _emit_shadow_banner(shadow_policy)
+
     shadow_enabled_policy = bool(shadow_policy.get("enabled"))
     shadow_enabled_flag = is_shadow_mode_enabled(env_map)
     shadow_enabled = shadow_enabled_policy or shadow_enabled_flag
-    effective_rate = float(shadow_policy.get("sample_rate", solver_module.sample_rate))
-    module_journal["solver"]["sample_rate"] = effective_rate
+    sample_rate_raw = shadow_policy.get("sample_rate", solver_module.sample_rate)
+    sample_rate_decimal = _coerce_decimal(sample_rate_raw)
+    if sample_rate_decimal < Decimal("0"):
+        sample_rate_decimal = Decimal("0")
+    if sample_rate_decimal > Decimal("1"):
+        sample_rate_decimal = Decimal("1")
+    if isinstance(sample_rate_raw, str) and sample_rate_raw:
+        sample_rate_str = sample_rate_raw
+    else:
+        sample_rate_str = str(sample_rate_decimal.normalize())
+
+    hash_salt = str(shadow_policy.get("hash_salt") or "")
+    sticky = bool(shadow_policy.get("sticky", False))
+
+    module_journal["solver"]["sample_rate"] = sample_rate_str
     module_journal["solver"]["shadow_policy"] = shadow_policy
+
+    if shadow_enabled and current_profile.lower() == "prod" and not hash_salt:
+        raise RuntimeError("Shadow hash_salt must be configured for prod profile")
 
     if shadow_enabled:
         shadow_outcome = run_shadow_check(
@@ -295,8 +348,10 @@ def run_pipeline(
             seed=verdict_seed,
             profile=current_profile,
             module=solver_module,
-            sample_rate=effective_rate,
-            hash_salt=_extract_shadow_hash_salt(env_map),
+            sample_rate=sample_rate_decimal,
+            sample_rate_str=sample_rate_str,
+            hash_salt=hash_salt,
+            sticky=sticky,
             spec_artifact=spec_artifact,
             complete_artifact=complete_artifact,
             primary_payload=verdict_payload,
@@ -406,8 +461,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--shadow-sample-rate",
         dest="shadow_sample_rate",
-        type=float,
-        help="Override the solver shadow sampling rate (0..1).",
+        help="Override the solver shadow sampling rate (0..1) using a decimal string.",
     )
     parser.add_argument(
         "--shadow-log-mismatch",
@@ -420,6 +474,24 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         help="Override the shadow p95 budget threshold in milliseconds.",
     )
+    parser.add_argument(
+        "--shadow-hash-salt",
+        dest="shadow_hash_salt",
+        help="Override the deterministic sampling hash salt.",
+    )
+    parser.add_argument(
+        "--shadow-sticky",
+        dest="shadow_sticky",
+        action="store_true",
+        help="Enable sticky shadow sampling (stable per puzzle).",
+    )
+    parser.add_argument(
+        "--shadow-sticky-off",
+        dest="shadow_sticky",
+        action="store_false",
+        help="Disable sticky shadow sampling explicitly.",
+    )
+    parser.set_defaults(shadow_sticky=None)
     return parser
 
 
