@@ -1,7 +1,7 @@
 # ADR: ShadowSampling v1
 
 > Status: Accepted  
-> Verified on 2025-09-26
+> Verified on 2025-09-27
 
 ## Context
 
@@ -13,13 +13,21 @@ Nova Solver выводится в тень поверх legacy-пайплайн�
 
 - В оркестраторе работает модуль `shadow_compare`, использующий SHA-256 хэш от
   `(hash_salt, run_id, stage, module_id, seed)` для выбора сэмплов.
-- Сэмплирование конфигурируется по профилям: dev/test — полный поток,
-  prod/pilot — регулируемая доля.
+- Сэмплирование конфигурируется по профилям: dev/test → 0.25, pilot → 1.0,
+  prod → 0.0 с возможностью динамической корректировки.
 - При попадании в выборку запускается альтернативный solver, сравниваются
   `CompleteGrid` и `Verdict.unique`, логируется событие `shadowlog/1`.
 - Логи нормализуются под `logging/shadowlog_v1.md` и складываются в `logs/shadow`.
 - CI использует отчёт `tools/ci/shadow_overhead_guard` для контроля overhead и
   рекомендуемых действий по sample_rate.
+- Приоритет конфигурации: **CLI (`CLI_SHADOW_*`) > ENV (`PUZZLE_SHADOW_*`,
+  `SHADOW_*`) > TOML (`config.toml` + `config/features.toml`) > built-ins (dev
+  профиль)**. Значения кэшируются на время процесса.
+- Shadow события формируются как `sudoku.shadow_sample.v1` (совпадение) и
+  `sudoku.shadow_mismatch.v1` (расхождение) с полями:
+  `{run_id, ts_iso8601, commit_sha, baseline_sha, hw_fingerprint, profile,
+  puzzle_digest, solver_primary, solver_shadow, verdict_status, time_ms_primary,
+  time_ms_shadow, diff_summary, solved_ref_digest}`.
 
 ### Parameters
 
@@ -35,10 +43,10 @@ Nova Solver выводится в тень поверх legacy-пайплайн�
 
 | Profile | Sample rate |
 | --- | --- |
-| dev | 1.0 |
-| test | 0.3 |
-| prod | 0.01 (авто-регулируется) |
-| pilot | policy-based |
+| dev | 0.25 |
+| test | 0.25 |
+| prod | 0.0 |
+| pilot | 1.0 |
 
 ### Auto regulation policy
 

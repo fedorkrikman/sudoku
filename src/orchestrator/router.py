@@ -65,8 +65,11 @@ def _extract_role_policy(puzzle_kind: str, role: str, profile: str) -> Dict[str,
 
 
 def _resolve_impl(policy: Dict[str, Any], env: Dict[str, str], role: str) -> tuple[str, str, str]:
-    env_impl_key = f"PUZZLE_{role.upper()}_IMPL"
-    env_state_key = f"PUZZLE_{role.upper()}_STATE"
+    role_upper = role.upper()
+    cli_impl_key = f"CLI_PUZZLE_{role_upper}_IMPL"
+    cli_state_key = f"CLI_PUZZLE_{role_upper}_STATE"
+    env_impl_key = f"PUZZLE_{role_upper}_IMPL"
+    env_state_key = f"PUZZLE_{role_upper}_STATE"
 
     decision_source = "config"
     impl = str(policy.get("impl", _DEF_IMPL))
@@ -79,7 +82,37 @@ def _resolve_impl(policy: Dict[str, Any], env: Dict[str, str], role: str) -> tup
         state = env[env_state_key]
         decision_source = "env"
 
+    if env.get(cli_impl_key):
+        impl = env[cli_impl_key]
+        decision_source = "cli"
+    if env.get(cli_state_key):
+        state = env[cli_state_key]
+        decision_source = "cli"
+
     return impl, state, decision_source
+
+
+def _resolve_sample_rate(policy: Mapping[str, Any], env: Mapping[str, str], role: str) -> float:
+    role_upper = role.upper()
+    cli_key = f"CLI_PUZZLE_{role_upper}_SAMPLE_RATE"
+    env_key = f"PUZZLE_{role_upper}_SAMPLE_RATE"
+
+    for key in (cli_key, env_key):
+        raw = env.get(key)
+        if raw is None:
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        return max(0.0, min(1.0, value))
+
+    raw_policy = policy.get("sample_rate", 0.0)
+    try:
+        value = float(raw_policy)
+    except (TypeError, ValueError):
+        value = 0.0
+    return max(0.0, min(1.0, value))
 
 
 def _apply_policy_defaults(policy: Dict[str, Any]) -> Dict[str, Any]:
@@ -110,7 +143,7 @@ def resolve(puzzle_kind: str, role: str, profile: str, env: Mapping[str, str]) -
         )
 
     allow_fallback = bool(policy.get("allow_fallback", True))
-    sample_rate = float(policy.get("sample_rate", 0.0))
+    sample_rate = _resolve_sample_rate(policy, env_map, role)
     contracts = policy.get("contracts")
 
     module_root = puzzle_root / role / impl

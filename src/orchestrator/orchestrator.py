@@ -76,22 +76,38 @@ def _extract_shadow_hash_salt(env: Mapping[str, str]) -> str | None:
     return None
 
 
-def _extract_shadow_rate_override(env: Mapping[str, str]) -> float | None:
-    for key in (
-        "PUZZLE_SHADOW_RATE",
-        "PUZZLE_SHADOW_SAMPLE_RATE",
-        "SHADOW_RATE",
-        "SHADOW_SAMPLE_RATE",
-    ):
-        value = env.get(key)
-        if value is None:
-            continue
-        try:
-            rate = float(value)
-        except (TypeError, ValueError):
-            continue
-        return max(0.0, min(1.0, rate))
+def _coerce_bool(value: str | bool | None) -> Optional[bool]:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalised = value.strip().lower()
+        if normalised in {"1", "true", "yes", "on"}:
+            return True
+        if normalised in {"0", "false", "no", "off"}:
+            return False
     return None
+
+
+def _cli_shadow_overrides(args: argparse.Namespace) -> Dict[str, str]:
+    payload: Dict[str, str] = {}
+
+    if getattr(args, "shadow_enabled", None) is True:
+        payload["CLI_SHADOW_ENABLED"] = "1"
+    elif getattr(args, "shadow_enabled", None) is False:
+        payload["CLI_SHADOW_ENABLED"] = "0"
+
+    if getattr(args, "shadow_sample_rate", None) is not None:
+        payload["CLI_SHADOW_SAMPLE_RATE"] = f"{float(args.shadow_sample_rate):.8f}"
+
+    if getattr(args, "shadow_log_mismatch", None) is not None:
+        maybe = _coerce_bool(args.shadow_log_mismatch)
+        if maybe is not None:
+            payload["CLI_SHADOW_LOG_MISMATCH"] = "1" if maybe else "0"
+
+    if getattr(args, "shadow_budget_ms_p95", None) is not None:
+        payload["CLI_SHADOW_BUDGET_MS_P95"] = str(int(args.shadow_budget_ms_p95))
+
+    return payload
 
 
 def _select_puzzle_kind(
@@ -263,10 +279,13 @@ def run_pipeline(
     verdict_id = _finalise_and_store(verdict_artifact, "Verdict", current_profile)
     results["verdict_id"] = verdict_id
 
-    shadow_enabled = is_shadow_mode_enabled(env_map)
-    shadow_rate = _extract_shadow_rate_override(env_map)
-    effective_rate = shadow_rate if shadow_rate is not None else solver_module.sample_rate
+    shadow_policy = solver_module.config.get("shadow", {})
+    shadow_enabled_policy = bool(shadow_policy.get("enabled"))
+    shadow_enabled_flag = is_shadow_mode_enabled(env_map)
+    shadow_enabled = shadow_enabled_policy or shadow_enabled_flag
+    effective_rate = float(shadow_policy.get("sample_rate", solver_module.sample_rate))
     module_journal["solver"]["sample_rate"] = effective_rate
+    module_journal["solver"]["shadow_policy"] = shadow_policy
 
     if shadow_enabled:
         shadow_outcome = run_shadow_check(
@@ -284,6 +303,7 @@ def run_pipeline(
             primary_time_ms=verdict_artifact["metrics"]["time_ms"],
             env=env_map,
             options=None,
+            shadow_config=shadow_policy,
         )
         module_journal["solver"]["shadow_sampled"] = shadow_outcome.event.payload.get("sampled", False)
         results["shadow"] = {
@@ -370,14 +390,49 @@ def build_parser() -> argparse.ArgumentParser:
             f"Defaults to '{_DEFAULT_OUTPUT_DIR}'."
         ),
     )
+    parser.add_argument(
+        "--shadow-enabled",
+        dest="shadow_enabled",
+        action="store_true",
+        help="Enable shadow comparisons for solver uniqueness checks.",
+    )
+    parser.add_argument(
+        "--shadow-disabled",
+        dest="shadow_enabled",
+        action="store_false",
+        help="Disable shadow comparisons explicitly.",
+    )
+    parser.set_defaults(shadow_enabled=None)
+    parser.add_argument(
+        "--shadow-sample-rate",
+        dest="shadow_sample_rate",
+        type=float,
+        help="Override the solver shadow sampling rate (0..1).",
+    )
+    parser.add_argument(
+        "--shadow-log-mismatch",
+        dest="shadow_log_mismatch",
+        help="Control mismatch logging (true/false).",
+    )
+    parser.add_argument(
+        "--shadow-budget-ms-p95",
+        dest="shadow_budget_ms_p95",
+        type=int,
+        help="Override the shadow p95 budget threshold in milliseconds.",
+    )
     return parser
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    cli_env = _cli_shadow_overrides(args)
     try:
-        result = run_pipeline(puzzle_kind=args.puzzle_kind, output_dir=args.output_dir)
+        result = run_pipeline(
+            puzzle_kind=args.puzzle_kind,
+            output_dir=args.output_dir,
+            env_overrides=cli_env,
+        )
     except RuntimeError as exc:
         parser.error(str(exc))
     print(

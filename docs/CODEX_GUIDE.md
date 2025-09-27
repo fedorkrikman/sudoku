@@ -52,6 +52,10 @@
 - Скрипты из пунктов выше прогнаны минимум в профилях `dev` и `ci`.
 - README и ADR обновлены при изменении инвариантов или процессов.
 - Нет смешения несвязанных изменений.
+- **ALG acceptance (2025-09-27):** CI обязывает прогонять `tools/ci/determinism_50x3.py`
+  с seeds из `tools/ci/seeds_YYYYMMDD.txt`, `tools/ci/parity_500_wilson.py`
+  (`LB ≥ 0.995`, критические mismatch=0) и `tools/ci/shadow_overhead_guard.py`
+  (`p95(Δ) ≤ 50 ms`, `p95_ratio ≤ 1.05`). Итоги заносятся в `REPORT.md`.
 
 ## 10. Документация: правила ведения
 
@@ -103,10 +107,10 @@ separators=(",", ":"), ensure_ascii=False)` для отчётов и артеф�
 
 ### Shadow-mode dev-loop
 
-- Активировать тень можно флагом `--enable-shadow` (CLI) или установкой
-  `shadow_mode.enabled=true` в `config/features.toml`.
-- Для единичного прогона используйте `python -m tools.cli.orchestrate run-one --seed <hex> --profile dev --enable-shadow [--shadow-rate <r>]`.
-- Для серии сидов: `python -m tools.cli.orchestrate batch-seeds seeds.txt --profile dev --enable-shadow`.
+- Активировать тень можно флагом `--shadow-enabled` (CLI) или установкой
+  `shadow.enabled=true` в `config/features.toml`.
+- Для единичного прогона используйте `python -m tools.cli.orchestrate run-one --seed <hex> --profile dev --shadow-enabled [--shadow-sample-rate <r>]`.
+- Для серии сидов: `python -m tools.cli.orchestrate batch-seeds seeds.txt --profile dev --shadow-enabled`.
 - Сводку по логам собирает `python -m tools.cli.orchestrate report-shadow logs/shadow --top 10`.
 - Ключевые метрики: `severity`, `kind`, `timings.overhead_pct`. Если `overhead_pct`
   стабильно > 0.05 — уменьшить `sample_rate` или проверить `policy.shadow.recommend_action`.

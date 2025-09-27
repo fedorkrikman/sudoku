@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import random
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,7 +19,6 @@ if str(SRC) not in sys.path:
 from artifacts import artifact_store
 from orchestrator import orchestrator
 
-ACCEPTANCE_PATH = ROOT / "data" / "acceptance" / "acceptance_corpus_9x9_v1.json"
 REPORT_DEFAULT = ROOT / "reports" / "parity_500" / "report.json"
 
 
@@ -44,13 +42,12 @@ class Mismatch:
     candidate_id: str
 
 
-def _load_seeds(sample: int, *, rng_seed: int = 0) -> List[str]:
-    payload = json.loads(ACCEPTANCE_PATH.read_text("utf-8"))
-    seeds = list(payload.get("seeds", []))
+def _read_seeds(path: Path, sample: int) -> List[str]:
+    content = path.read_text("utf-8").splitlines()
+    seeds = [line.strip() for line in content if line.strip()]
     if sample > len(seeds):
-        raise ValueError(f"requested {sample} seeds but corpus only has {len(seeds)} entries")
-    rng = random.Random(rng_seed)
-    return [seeds[i] for i in rng.sample(range(len(seeds)), sample)]
+        raise ValueError(f"requested {sample} seeds but file only has {len(seeds)} entries")
+    return seeds[:sample]
 
 
 def _extract_complete_hash(artifact_id: str) -> str:
@@ -167,11 +164,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", default="dev", help="Validation profile to use")
     parser.add_argument("--n", type=int, default=500, help="Number of samples")
-    parser.add_argument("--out", type=Path, default=REPORT_DEFAULT, help="Path to JSON report")
-    parser.add_argument("--seed", type=int, default=0, help="PRNG seed for sampling")
+    parser.add_argument("--seeds-file", type=Path, required=True, help="Path to file with newline-separated seeds")
+    parser.add_argument("--report", type=Path, default=REPORT_DEFAULT, help="Path to JSON report")
     args = parser.parse_args(argv)
 
-    seeds = _load_seeds(args.n, rng_seed=args.seed)
+    seeds = _read_seeds(args.seeds_file, args.n)
     mismatches: List[Mismatch] = []
     matches = 0
 
@@ -185,7 +182,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             mismatches.append(mismatch)
 
     report = _report(mismatches, matches, len(seeds))
-    _write_report(report, args.out)
+    _write_report(report, args.report)
 
     status = "PASS" if report["passed"] else "FAIL"
     print(

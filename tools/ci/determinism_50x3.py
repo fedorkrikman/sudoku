@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Determinism gate: N seeds × R runs with canonical comparisons."""
+"""Determinism gate: seeds from file × R runs with canonical comparisons."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence
+from typing import Dict, List, Sequence
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
@@ -18,7 +18,6 @@ if str(SRC) not in sys.path:
 from artifacts import artifact_store
 from orchestrator import orchestrator
 
-ACCEPTANCE_PATH = ROOT / "data" / "acceptance" / "acceptance_corpus_9x9_v1.json"
 REPORT_DEFAULT = ROOT / "reports" / "determinism_50x3" / "report.json"
 
 _ARTIFACT_TYPES = {
@@ -37,12 +36,12 @@ class RunSnapshot:
     logs: List[Dict[str, object]]
 
 
-def _load_acceptance_corpus(limit: int) -> Sequence[str]:
-    payload = json.loads(ACCEPTANCE_PATH.read_text("utf-8"))
-    seeds = payload.get("seeds") or []
-    if limit > len(seeds):
-        raise ValueError(f"requested {limit} seeds but corpus only provides {len(seeds)}")
-    return list(seeds[:limit])
+def _read_seeds_file(path: Path) -> Sequence[str]:
+    content = path.read_text("utf-8").splitlines()
+    seeds = [line.strip() for line in content if line.strip()]
+    if not seeds:
+        raise ValueError(f"seeds file '{path}' is empty")
+    return seeds
 
 
 def _canonical_artifact(artifact_id: str) -> bytes:
@@ -177,17 +176,20 @@ def _write_report(report: Dict[str, object], path: Path) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", default="dev", help="Validation profile (dev/test/prod)")
-    parser.add_argument("--seeds", type=int, default=50, help="Number of seeds to check")
+    parser.add_argument("--seeds-file", type=Path, required=True, help="Path to file with newline-separated seeds")
     parser.add_argument("--runs", type=int, default=3, help="Number of runs per seed")
-    parser.add_argument("--out", type=Path, default=REPORT_DEFAULT, help="Path to JSON report")
+    parser.add_argument("--report", type=Path, default=REPORT_DEFAULT, help="Path to JSON report")
     args = parser.parse_args(argv)
 
-    seeds = _load_acceptance_corpus(args.seeds)
+    seeds = _read_seeds_file(args.seeds_file)
     report = run(args.profile, seeds, args.runs)
-    _write_report(report, args.out)
+    _write_report(report, args.report)
 
     status = "PASS" if report["passed"] else "FAIL"
-    print(f"Determinism {status}: seeds={args.seeds} runs={args.runs} disagreements={len(report['disagreements'])}")
+    print(
+        f"Determinism {status}: seeds={len(seeds)} runs={args.runs} "
+        f"disagreements={len(report['disagreements'])}"
+    )
     return 0 if report["passed"] else 1
 
 

@@ -37,9 +37,14 @@
 - Novus подключён в профиле `dev` через shadow-режим с делегированием на legacy.
 - Shadow сравнения ведут baseline `legacy` против `novus`, логи сохраняются в
   `logs/shadow/YYYYMMDD/` и проходят каноническую нормализацию.
-- CLI `python -m tools.cli.orchestrate run-one --profile dev --enable-shadow`
+- CLI `python -m tools.cli.orchestrate run-one --profile dev --shadow-enabled`
   служит эталонным способом прогнать shadow на выборке сидов.
 - Целевые гейты: determinism_50x3, parity_500_wilson и shadow_overhead_guard.
+- **ALG acceptance (2025-09-27):** запуск `determinism_50x3` (50×3, dev,
+  seeds из `tools/ci/seeds_YYYYMMDD.txt`) без расхождений; `parity_500_wilson`
+  выдаёт нижнюю границу ≥ 0.995, критических mismatch=0; `shadow_overhead_guard`
+  фиксирует `p95(Δ) ≤ 50 ms` и `p95_ratio ≤ 1.05`. Отчёты записываются в
+  `reports/*/report.json` и публикуются в `REPORT.md`.
 
 ## Horizons
 

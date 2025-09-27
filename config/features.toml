@@ -1,2 +1,11 @@
+[shadow]
+enabled = false
+sample_rate = 0.25
+primary = "legacy"
+secondary = "novus"
+log_mismatch = true
+budget_ms_p95 = 50
+
+# Backwards compatibility for legacy flag loader.
 [shadow_mode]
 enabled = false

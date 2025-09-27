@@ -14,10 +14,10 @@
 
 ### Acceptance — текущая итерация
 
-- `python -m tools.ci.determinism_50x3 --profile dev --seeds 50 --runs 3` → PASS.
-- `python -m tools.ci.parity_500_wilson --profile dev --n 500` → PASS, `ci_lower ≥ 0.995`, `critical = 0`, `major ≤ 3`. Для shadow сравнения включаем `--enable-shadow` в `tools.cli.orchestrate run-one`.
-- `python -m tools.ci.nfr_hdr_100 --profile dev` → отчёт `reports/nfr_hdr_100/report.json` с guardrail-флагом.
-- `python -m tools.ci.shadow_overhead_guard --profile prod` → отчёт `reports/shadow_overhead/report.json` с action ≠ `raise`.
+- `PYTHONPATH=src python tools/ci/determinism_50x3.py --profile dev --seeds-file tools/ci/seeds_YYYYMMDD.txt --report reports/determinism_50x3/report.json` → PASS, расхождений нет.
+- `PYTHONPATH=src python tools/ci/parity_500_wilson.py --profile dev --seeds-file tools/ci/seeds_YYYYMMDD.txt --n 500 --report reports/parity_500/report.json` → PASS, `LB ≥ 0.995`, `critical = 0`.
+- `PYTHONPATH=src python tools/ci/shadow_overhead_guard.py --profile dev --seeds-file tools/ci/seeds_YYYYMMDD.txt --warmup 10 --samples 300 --budget-ms-p95 50 --ratio-p95 1.05 --report reports/overhead/report.json` → PASS.
+- CHANGELOG фиксирует задачу с ссылкой на отчёты и дату `Verified on 2025-09-27`.
 - CHANGELOG содержит запись «docs: mini-repair + strategy anchor» с ссылками на отчёты.
 
 ## 2. Долговременные принципы (опоры)

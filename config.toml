@@ -123,7 +123,7 @@ impl = "legacy"
 
 [modules."sudoku-9x9".solver.by_profile.dev]
 state = "shadow"
-impl = "novus"
+impl = "legacy"
 sample_rate = 0.25
 
 [modules."sudoku-9x9".generator]

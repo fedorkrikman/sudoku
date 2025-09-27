@@ -1,119 +1,160 @@
-#!/usr/bin/env python3
-"""Shadow sampling overhead guardrail computation."""
+"""Measure shadow overhead against guardrails (delta and ratio percentiles)."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
+import sys
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Sequence
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_EVENTS = ROOT / "logs" / "examples" / "shadowlog_v1_sample.json"
-REPORT_DEFAULT = ROOT / "reports" / "shadow_overhead" / "report.json"
 
-def _load_events(path: Path) -> List[Dict[str, object]]:
-    if not path.exists():
-        return []
-    raw = path.read_text("utf-8")
-    raw = raw.strip()
-    if not raw:
-        return []
-    events: List[Dict[str, object]] = []
-    if raw.startswith("["):
-        payload = json.loads(raw)
-        if isinstance(payload, list):
-            events.extend(item for item in payload if isinstance(item, dict))
-    elif raw.startswith("{"):
-        payload = json.loads(raw)
-        if isinstance(payload, dict):
-            events.append(payload)
-    else:
-        for line in raw.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                payload = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(payload, dict):
-                events.append(payload)
-    return events
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+
+from orchestrator import orchestrator
 
 
+@dataclass
+class Sample:
+    seed: str
+    base_ms: float
+    shadow_ms: float
 
-def _compute_metrics(events: Sequence[Dict[str, object]]) -> Dict[str, float]:
-    sampled = [event for event in events if bool(event.get("sampled"))]
-    if not sampled:
-        return {
-            "shadow_fraction": 0.0,
-            "avg_delta_ms": 0.0,
-            "overhead_pct": 0.0,
-            "mismatch_rate": 0.0,
-        }
-    shadow_fraction = sum(float(event.get("sample_rate", 0.0)) for event in sampled) / len(sampled)
-    deltas = [float(event.get("perf_delta_ms", 0.0)) for event in sampled if isinstance(event.get("perf_delta_ms"), (int, float))]
-    avg_delta = sum(deltas) / len(deltas) if deltas else 0.0
-    durations = [float(event.get("time_ms", 0.0)) for event in sampled if isinstance(event.get("time_ms"), (int, float)) and float(event.get("time_ms", 0.0)) > 0]
-    baseline = sum(durations) / len(durations) if durations else 1.0
-    overhead_pct = 100.0 * shadow_fraction * (avg_delta / baseline)
-    mismatches = [event for event in sampled if str(event.get("category", "")).upper() != "OK" or str(event.get("verdict_status", "ok")).lower() != "ok"]
-    mismatch_rate = len(mismatches) / len(sampled)
-    return {
-        "shadow_fraction": shadow_fraction,
-        "avg_delta_ms": avg_delta,
-        "overhead_pct": overhead_pct,
-        "mismatch_rate": mismatch_rate,
+    @property
+    def delta_ms(self) -> float:
+        return self.shadow_ms - self.base_ms
+
+    @property
+    def ratio(self) -> float:
+        if self.base_ms <= 0:
+            return 0.0
+        return self.shadow_ms / self.base_ms
+
+
+def _read_seeds(path: Path) -> List[str]:
+    seeds = [line.strip() for line in path.read_text("utf-8").splitlines() if line.strip()]
+    if not seeds:
+        raise ValueError(f"seeds file '{path}' is empty")
+    return seeds
+
+
+def _percentile(values: Sequence[float], quantile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = (len(ordered) - 1) * quantile
+    lower = math.floor(index)
+    upper = math.ceil(index)
+    if lower == upper:
+        return ordered[int(index)]
+    fraction = index - lower
+    return ordered[lower] * (1 - fraction) + ordered[upper] * fraction
+
+
+def _run_pipeline(seed: str, profile: str, *, shadow_enabled: bool, sample_rate: float) -> float:
+    overrides = {
+        "PUZZLE_ROOT_SEED": seed,
+        "PUZZLE_VALIDATION_PROFILE": profile,
+        "CLI_SHADOW_ENABLED": "1" if shadow_enabled else "0",
+        "CLI_SHADOW_SAMPLE_RATE": f"{sample_rate:.8f}",
     }
+    start = time.perf_counter()
+    orchestrator.run_pipeline(env_overrides=overrides)
+    return (time.perf_counter() - start) * 1000
 
 
-def _decide_action(metrics: Dict[str, float]) -> str:
-    overhead = metrics.get("overhead_pct", 0.0)
-    mismatch_rate = metrics.get("mismatch_rate", 0.0)
-    if overhead > 5.0:
-        return "halve"
-    if mismatch_rate > 0.002:
-        return "raise"
-    if mismatch_rate < 0.0002:
-        return "lower"
-    return "none"
+def _collect_samples(
+    seeds: Sequence[str],
+    profile: str,
+    warmup: int,
+    samples: int,
+) -> List[Sample]:
+    if warmup + samples > len(seeds):
+        raise ValueError(
+            f"requested warmup+samples={warmup + samples} but file only provides {len(seeds)} seeds"
+        )
+
+    collected: List[Sample] = []
+    for index, seed in enumerate(seeds):
+        if index < warmup:
+            _run_pipeline(seed, profile, shadow_enabled=False, sample_rate=0.0)
+            _run_pipeline(seed, profile, shadow_enabled=True, sample_rate=1.0)
+            continue
+        if len(collected) >= samples:
+            break
+        base_ms = _run_pipeline(seed, profile, shadow_enabled=False, sample_rate=0.0)
+        shadow_ms = _run_pipeline(seed, profile, shadow_enabled=True, sample_rate=1.0)
+        collected.append(Sample(seed=seed, base_ms=base_ms, shadow_ms=shadow_ms))
+    return collected
+
+
+def _write_report(payload: Dict[str, object], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    path.write_text(canonical + "\n", encoding="utf-8")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", default="prod", help="Profile (expected prod)")
-    parser.add_argument("--window", type=int, default=10000, help="Sliding window size (events)")
-    parser.add_argument("--events", type=Path, default=DEFAULT_EVENTS, help="Path to shadow log events")
-    parser.add_argument("--out", type=Path, default=REPORT_DEFAULT, help="Path to JSON report")
+    parser.add_argument("--profile", default="dev", help="Validation profile")
+    parser.add_argument("--seeds-file", type=Path, required=True, help="Path to seeds file")
+    parser.add_argument("--warmup", type=int, default=10, help="Number of warmup seeds")
+    parser.add_argument("--samples", type=int, default=300, help="Number of measured samples")
+    parser.add_argument("--budget-ms-p95", type=float, default=50.0, help="p95 delta budget in ms")
+    parser.add_argument("--ratio-p95", type=float, default=1.05, help="p95 ratio budget")
+    parser.add_argument("--report", type=Path, default=ROOT / "reports" / "overhead" / "report.json", help="Report path")
     args = parser.parse_args(argv)
 
-    events = _load_events(args.events)
-    if args.window and len(events) > args.window:
-        events = events[-args.window :]
+    seeds = _read_seeds(args.seeds_file)
+    samples = _collect_samples(seeds, args.profile, args.warmup, args.samples)
 
-    metrics = _compute_metrics(events)
-    action = _decide_action(metrics)
+    deltas = [sample.delta_ms for sample in samples]
+    ratios = [sample.ratio for sample in samples]
+
+    delta_p95 = _percentile(deltas, 0.95)
+    ratio_p95 = _percentile(ratios, 0.95)
 
     report = {
         "profile": args.profile,
-        "overhead_pct": round(metrics["overhead_pct"], 3),
-        "mismatch_rate": round(metrics["mismatch_rate"], 6),
-        "shadow_fraction": round(metrics["shadow_fraction"], 6),
-        "avg_delta_ms": round(metrics["avg_delta_ms"], 3),
-        "action": action,
-        "events_analyzed": len(events),
+        "warmup": args.warmup,
+        "samples": len(samples),
+        "delta_ms": {
+            "p50": round(_percentile(deltas, 0.50), 3),
+            "p95": round(delta_p95, 3),
+            "p99": round(_percentile(deltas, 0.99), 3),
+        },
+        "ratio": {
+            "p50": round(_percentile(ratios, 0.50), 5),
+            "p95": round(ratio_p95, 5),
+            "p99": round(_percentile(ratios, 0.99), 5),
+        },
+        "budget_ms_p95": args.budget_ms_p95,
+        "ratio_p95_limit": args.ratio_p95,
+        "top_deltas": [
+            {
+                "seed": sample.seed,
+                "delta_ms": round(sample.delta_ms, 3),
+                "base_ms": round(sample.base_ms, 3),
+                "shadow_ms": round(sample.shadow_ms, 3),
+            }
+            for sample in sorted(samples, key=lambda s: s.delta_ms, reverse=True)[:10]
+        ],
     }
-    report_path = args.out
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    canonical = json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    report_path.write_text(canonical + "\n", encoding="utf-8")
+    report["passed"] = delta_p95 <= args.budget_ms_p95 and ratio_p95 <= args.ratio_p95
 
+    _write_report(report, args.report)
+
+    status = "PASS" if report["passed"] else "FAIL"
     print(
-        f"Shadow overhead {action.upper() if action != 'none' else 'OK'}: "
-        f"overhead={report['overhead_pct']}% mismatch_rate={report['mismatch_rate']}"  # noqa: E501
+        f"Shadow overhead {status}: p95_delta={round(delta_p95, 3)} "
+        f"p95_ratio={round(ratio_p95, 5)} samples={len(samples)}"
     )
-    return 0
+    return 0 if report["passed"] else 1
 
 
 if __name__ == "__main__":

@@ -25,6 +25,24 @@
   [`config.toml`](../config.toml) и могут быть переопределены переменными
   окружения.
 
+### Shadow solver bring-up
+
+- Shadow-режим конфигурируется через `[shadow]` в `config/features.toml` и
+  поддерживает приоритеты **CLI > ENV > TOML > built-ins**.
+- CLI-флаги: `--shadow-enabled`, `--shadow-sample-rate`,
+  `--shadow-log-mismatch`, `--shadow-budget-ms-p95` (для `python -m
+  tools.cli.orchestrate run-one`).
+- ENV-переменные: `CLI_SHADOW_*` (имитация CLI), `PUZZLE_SHADOW_*` и
+  `SHADOW_*`.
+- Значения по умолчанию: dev/test → 0.25, pilot → 1.0, prod → 0.0, primary →
+  `legacy`, secondary → `novus`, `log_mismatch=true`, `budget_ms_p95=50`.
+- События shadow фиксируются в `logs/shadow` с типом
+  `sudoku.shadow_mismatch.v1` (mismatch) и `sudoku.shadow_sample.v1` (match),
+  включая поля `run_id`, `ts_iso8601`, `commit_sha`, `baseline_sha`,
+  `hw_fingerprint`, `puzzle_digest`, `solver_primary`, `solver_shadow`,
+  `verdict_status`, `time_ms_primary`, `time_ms_shadow`, `diff_summary`,
+  `solved_ref_digest`.
+
 ## Canonical Pattern Order v1
 
 Новая архитектура Nova использует фиксированный порядок эвристик для

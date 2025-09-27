@@ -2,11 +2,13 @@
 
 # Unreleased
 
-- feat(sudoku-9x9): enable novus solver shadow bring-up in `dev` profile and
-  document the `tools.cli.orchestrate` flow (`README`, `docs/STRATEGY.md`,
-  `docs/GOALS_ROADMAP.md`, `docs/CODEX_GUIDE.md`).
-- chore: refresh verification stamps to 2025-09-27 and record shadow bring-up
-  guardrails (determinism, parity, shadow overhead).
+- feat(shadow): добавлен приоритет конфигурации **CLI > ENV > TOML > built-ins**,
+  CLI-флаги `--shadow-*`, логирование событий `sudoku.shadow_{sample,mismatch}.v1`
+  и делегирование Novus → Legacy с `trace.delegated_to=legacy@<commit>`.
+- test: новые проверки конфигурации/границ/ивентов (`test_config_precedence`,
+  `test_shadow_bounds`, `test_shadow_event_shape`, `test_shadow_metrics`).
+- docs: README/STRATEGY/CODEX_GUIDE/GOALS_ROADMAP/ADR обновлены (ALG acceptance
+  2025-09-27, поля события, приоритеты shadow).
 
 # 2025-09-26 — feat(orchestrator): shadow compare runtime & tooling
 

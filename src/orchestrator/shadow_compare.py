@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
+import platform
 import time
+import uuid
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable, Mapping, MutableMapping, Tuple
+from typing import Any, Callable, Dict, Mapping, MutableMapping, Tuple
 
 from contracts.envelope import Envelope, envelope_to_dict, make_envelope
 from contracts.jsoncanon import jcs_sha256
@@ -60,6 +65,9 @@ class ShadowTask:
     classifier: Callable[[ShadowRun, ShadowRun], Tuple[str, str]] | None = None
     metadata: Mapping[str, Any] | None = None
     allow_fallback: bool = True
+    primary_impl: str = "legacy"
+    secondary_impl: str = "novus"
+    log_mismatch: bool = True
 
 
 @dataclass(frozen=True)
@@ -89,6 +97,89 @@ class ShadowOutcome:
     counters: Mapping[str, int]
 
 
+@lru_cache(maxsize=1)
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+@lru_cache(maxsize=1)
+def _current_commit_sha() -> str:
+    git_dir = _project_root() / ".git"
+    head_path = git_dir / "HEAD"
+    try:
+        head = head_path.read_text("utf-8").strip()
+    except OSError:
+        return "unknown"
+    if head.startswith("ref:"):
+        ref = head.split(None, 1)[1]
+        ref_path = git_dir / ref
+        try:
+            return ref_path.read_text("utf-8").strip()[:40]
+        except OSError:
+            return "unknown"
+    return head[:40]
+
+
+@lru_cache(maxsize=1)
+def _hardware_fingerprint() -> str:
+    payload = "|".join(str(part) for part in platform.uname())
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return digest[:16]
+
+
+def _deterministic_timestamp(run_id: str, stage: str) -> str:
+    anchor = datetime(2023, 1, 1, tzinfo=timezone.utc)
+    material = f"shadow|{run_id}|{stage}"
+    offset_ms = uuid.uuid5(uuid.NAMESPACE_OID, material).int % (24 * 60 * 60 * 1000)
+    moment = anchor + timedelta(milliseconds=offset_ms)
+    return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _extract_solved_ref(payload: Mapping[str, Any]) -> str | None:
+    candidate = payload.get("solved_ref")
+    if isinstance(candidate, str) and candidate:
+        return candidate
+    return None
+
+
+def _build_shadow_event(
+    *,
+    task: ShadowTask,
+    severity: str,
+    kind: str,
+    timings: Mapping[str, float],
+    baseline: ShadowRun,
+    candidate: ShadowRun,
+) -> Mapping[str, Any]:
+    status = "match" if severity == "NONE" else "mismatch"
+    event_type = "sudoku.shadow_mismatch.v1" if severity != "NONE" else "sudoku.shadow_sample.v1"
+    metadata = task.metadata or {}
+    puzzle_digest = metadata.get("puzzle_digest")
+    baseline_sha = metadata.get("baseline_sha") or metadata.get("commit_sha") or _current_commit_sha()
+    commit_sha = metadata.get("commit_sha") or _current_commit_sha()
+    hw_fp = metadata.get("hw_fingerprint") or _hardware_fingerprint()
+    solved_ref = _extract_solved_ref(candidate.result_artifact)
+    if solved_ref is None and baseline.result_artifact:
+        solved_ref = _extract_solved_ref(baseline.result_artifact)
+    diff_summary = "none" if severity == "NONE" else f"{kind}:{severity}"
+
+    return {
+        "type": event_type,
+        "run_id": task.run_id,
+        "ts_iso8601": _deterministic_timestamp(task.run_id, task.stage),
+        "commit_sha": commit_sha,
+        "baseline_sha": baseline_sha,
+        "hw_fingerprint": hw_fp,
+        "profile": task.profile,
+        "puzzle_digest": puzzle_digest,
+        "solver_primary": task.primary_impl,
+        "solver_shadow": task.secondary_impl,
+        "verdict_status": status,
+        "time_ms_primary": round(float(timings.get("candidate_ms", 0.0)), 3),
+        "time_ms_shadow": round(float(timings.get("baseline_ms", 0.0)), 3),
+        "diff_summary": diff_summary,
+        "solved_ref_digest": solved_ref,
+    }
 def _execute_runner(runner: Callable[[], ShadowRun]) -> tuple[ShadowRun, float]:
     start = time.perf_counter()
     result = runner()
@@ -140,6 +231,10 @@ def classify_mismatch(baseline: ShadowRun, candidate: ShadowRun) -> tuple[str, s
     cand_payload = candidate.result_artifact
 
     if isinstance(base_payload, Mapping) and isinstance(cand_payload, Mapping):
+        base_core = {k: v for k, v in base_payload.items() if k != "trace"}
+        cand_core = {k: v for k, v in cand_payload.items() if k != "trace"}
+        if base_core == cand_core:
+            return "none", "NONE"
         if base_payload.get("grid") != cand_payload.get("grid"):
             return "value", "CRITICAL"
         if base_payload.get("candidates") != cand_payload.get("candidates"):
@@ -250,17 +345,17 @@ def run_with_shadow(task: ShadowTask) -> ShadowResult:
         "overhead_pct": overhead_pct,
     }
 
-    event_payload = _build_event(
+    event_payload = _build_shadow_event(
         task=task,
         severity=severity,
         kind=kind,
+        timings=timings,
         baseline=baseline,
         candidate=candidate,
-        baseline_digest=baseline_digest,
-        candidate_digest=candidate_digest,
-        timings=timings,
     )
-    event_path = log.append_event(event_payload)
+    event_path: Path | None = None
+    if severity != "NONE" and task.log_mismatch:
+        event_path = log.append_event(event_payload)
 
     fallback = False
     if task.guardrail is not None:
@@ -311,8 +406,10 @@ def run_shadow_check(
     primary_time_ms: int,
     env: Mapping[str, str] | None = None,
     options: Mapping[str, Any] | None = None,
+    shadow_config: Mapping[str, Any] | None = None,
 ) -> ShadowOutcome:
     env = env or {}
+    shadow_config = shadow_config or {}
 
     candidate_run = ShadowRun(
         verdict=_verdict_from_payload(primary_payload),
@@ -338,10 +435,25 @@ def run_shadow_check(
     envelope = make_envelope(
         profile=profile,
         solver_id=module.module_id,
-        commit_sha="unknown",
+        commit_sha=_current_commit_sha(),
         baseline_sha=None,
         run_id=run_id,
     )
+
+    puzzle_digest: str | None = None
+    if isinstance(complete_artifact, Mapping):
+        digest_candidate = complete_artifact.get("artifact_id")
+        if isinstance(digest_candidate, str) and digest_candidate:
+            puzzle_digest = digest_candidate
+        else:
+            puzzle_digest = jcs_sha256(dict(complete_artifact))
+
+    metadata: Dict[str, Any] = {
+        "puzzle_kind": puzzle_kind,
+        "puzzle_digest": puzzle_digest,
+        "commit_sha": _current_commit_sha(),
+        "baseline_sha": shadow_config.get("baseline_sha"),
+    }
 
     task = ShadowTask(
         envelope=envelope,
@@ -354,7 +466,11 @@ def run_shadow_check(
         hash_salt=hash_salt,
         baseline_runner=baseline_runner,
         candidate_runner=candidate_runner,
-        metadata={"puzzle_kind": puzzle_kind},
+        metadata=metadata,
+        allow_fallback=module.allow_fallback,
+        primary_impl=module.impl_id,
+        secondary_impl=str(shadow_config.get("secondary", "novus")),
+        log_mismatch=bool(shadow_config.get("log_mismatch", True)),
     )
 
     result = run_with_shadow(task)
