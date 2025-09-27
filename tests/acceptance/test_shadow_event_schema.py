@@ -5,6 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import importlib.util
+import json
 import sys
 
 from contracts.envelope import make_envelope

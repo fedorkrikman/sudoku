@@ -101,6 +101,7 @@ class ShadowEvent:
 class ShadowOutcome:
     event: ShadowEvent
     counters: Mapping[str, int]
+    sampled: bool
 
 
 _HEX_CHARS = {ch for ch in string.hexdigits.lower()}
@@ -407,8 +408,6 @@ def _build_shadow_event(
     *,
     task: ShadowTask,
     timings: Mapping[str, float],
-    baseline: ShadowRun,
-    candidate: ShadowRun,
     taxonomy: Mapping[str, str] | None,
     verdict_status: str,
     diff_summary: str,
@@ -671,8 +670,6 @@ def run_with_shadow(task: ShadowTask) -> ShadowResult:
     event_payload = _build_shadow_event(
         task=task,
         timings=timings,
-        baseline=baseline,
-        candidate=candidate,
         taxonomy=taxonomy_entry,
         verdict_status=verdict_status,
         diff_summary=diff_summary,
@@ -822,4 +819,8 @@ def run_shadow_check(
         code = result.taxonomy.get("code", "C6")
         counters[f"shadow_mismatch_{code}"] = 1
 
-    return ShadowOutcome(event=ShadowEvent(payload=result.event), counters=counters)
+    return ShadowOutcome(
+        event=ShadowEvent(payload=result.event),
+        counters=counters,
+        sampled=result.sampled,
+    )

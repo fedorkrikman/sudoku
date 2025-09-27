@@ -371,7 +371,7 @@ def run_pipeline(
             options=None,
             shadow_config=shadow_policy,
         )
-        module_journal["solver"]["shadow_sampled"] = shadow_outcome.event.payload.get("sampled", False)
+        module_journal["solver"]["shadow_sampled"] = shadow_outcome.sampled
         results["shadow"] = {
             "event": shadow_outcome.event.payload,
             "counters": shadow_outcome.counters,

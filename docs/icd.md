@@ -57,6 +57,16 @@ and the baseline legacy solver without changing public contracts.
   - ``shadow_skipped`` – попадание в выборку, которое не было выполнено (sample miss).
 * ``run_pipeline`` возвращает событие и счётчики в ``results['shadow']`` для CI и офлайн-отчётов.
 
+### CI guardrails и soak
+
+* ``tools/ci/shadow_overhead_guard.py`` измеряет ``p50/p95/p99`` задержек для базового и shadow-прогона,
+  вычисляет ``Δ`` и ``ratio`` и валидирует, что ``p95(Δ) ≤ 50 ms`` и ``p95(shadow/base) ≤ 1.05``.
+  Результаты хранятся в ``reports/overhead/report.json``; baseline агрегируется по ``(commit_sha, hw_fingerprint, profile)``
+  с медианой и TTL 14 дней.
+* ``tools/ci/schema_check.py`` валидирует события против опубликованной схемы (через ``jsonschema`` или fallback-проверки).
+* ``tools/ci/soak_run.py`` запускает nightly soak (по умолчанию 20 000 сидов) с выборкой PCG64 без повторов, собирает
+  покрытие, таксономию и список критических сбоев и пишет отчёты в ``reports/soak/YYYYMMDD/summary.json`` с ротацией 30 дней.
+
 ### Taxonomy ``C1`` – ``C6``
 
 | Code | Severity  | Описание |

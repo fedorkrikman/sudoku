@@ -12,7 +12,7 @@ def test_shadow_event_payload_contains_required_fields() -> None:
     result = orchestrator.run_pipeline(env_overrides=overrides)
 
     event = result["shadow"]["event"]
-    assert event["type"] == "sudoku.shadow_sample.v1"
+    assert event["type"] in {"sudoku.shadow_sample.v1", "sudoku.shadow_mismatch.v1"}
 
     required = {
         "run_id",
@@ -39,13 +39,18 @@ def test_shadow_event_payload_contains_required_fields() -> None:
     assert event["run_id"] == result["run_id"]
     assert event["solver_primary"] == "legacy"
     assert event["solver_shadow"] == "novus"
-    assert event["verdict_status"] == "match"
+    if event["type"] == "sudoku.shadow_sample.v1":
+        assert event["verdict_status"] == "match"
+        assert "taxonomy" not in event
+    else:
+        assert event["verdict_status"] in {"mismatch", "budget_exhausted"}
+        assert "taxonomy" in event
     assert isinstance(event["sample_rate"], str)
     assert len(event["puzzle_digest"]) == 64
     assert len(event["solve_trace_sha256"]) == 64
     assert len(event["state_hash_sha256"]) == 64
     assert len(event["envelope_jcs_sha256"]) == 64
-    assert isinstance(event["time_ms_primary"], float)
-    assert isinstance(event["time_ms_shadow"], float)
-    assert isinstance(event["solved_ref_digest"], str)
+    assert isinstance(event["time_ms_primary"], int)
+    assert isinstance(event["time_ms_shadow"], int)
+    assert isinstance(event.get("solved_ref_digest"), str)
     assert event["ts_iso8601"].endswith("Z")

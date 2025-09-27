@@ -89,4 +89,6 @@ def test_run_shadow_check_counts_taxonomy(monkeypatch) -> None:
     )
 
     assert isinstance(outcome, ShadowOutcome)
+    assert outcome.sampled is True
     assert outcome.counters == {"shadow_mismatch_C2": 1}
+    assert outcome.event.payload["taxonomy"]["severity"] == "CRITICAL"

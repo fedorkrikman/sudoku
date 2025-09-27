@@ -5,8 +5,10 @@
 **Compatibility:** shadow mismatch schema v1 with guardrail telemetry.
 
 - feat(shadow): finalised taxonomy C1..C6, integerised timings and guardrail enforcement (nodes/bt_depth/time_ms) with `budget_exhausted` events logged via `sudoku.shadow_mismatch.v1`.
-- feat(ci): добавлены `tools/ci/schema_check.py`, обновлённый `tools/ci/shadow_overhead_guard.py` (p50/p95/p99, baseline TTL 14d) и ночной `tools/ci/soak_run.py` с PCG64 выборкой и ротацией отчётов.
-- docs: README/icd/ADR отражают новую схему событий, guardrails и таксономию; `tools/ci/doc_checks.py` проверяет совместимость, целочисленные миллисекунды и hex-дайджесты.
+- feat(ci): added portable `tools/ci/schema_check.py` (jsonschema-or-fallback), tightened `tools/ci/doc_checks.py` (compat notes, integer timings, 64-hex digests, float ban).
+- feat(ci): updated `tools/ci/shadow_overhead_guard.py` to emit p50/p95/p99 for base/shadow/delta/ratio, persist rolling baselines (TTL 14d) and surface top Δ seeds.
+- feat(ci): new nightly soak runner `tools/ci/soak_run.py` (20k seeds via PCG64, difficulty mix, report rotation) wiring taxonomy tallies & failure inventory.
+- docs: README/icd/ADR refreshed with schema references, guardrails, overhead gate and soak guidance.
 
 
 - feat(shadow): добавлен приоритет конфигурации **CLI > ENV > TOML > built-ins**,

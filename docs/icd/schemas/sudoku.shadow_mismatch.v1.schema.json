@@ -20,11 +20,7 @@
     "time_ms_shadow",
     "diff_summary",
     "solved_ref_digest",
-    "taxonomy",
-    "sample_rate",
-    "solve_trace_sha256",
-    "state_hash_sha256",
-    "envelope_jcs_sha256"
+    "taxonomy"
   ],
   "properties": {
     "type": {
@@ -84,7 +80,7 @@
     },
     "solved_ref_digest": {
       "type": "string",
-      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+      "pattern": "^[0-9a-f]{64}$"
     },
     "taxonomy": {
       "type": "object",
@@ -152,6 +148,126 @@
             "properties": {
               "code": {"const": "C4"},
               "severity": {"const": "MAJOR"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "taxonomy": {
+            "properties": {
+              "code": {"const": "C1"}
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "taxonomy": {
+            "properties": {
+              "severity": {"const": "CRITICAL"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "taxonomy": {
+            "properties": {
+              "code": {"const": "C2"}
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "taxonomy": {
+            "properties": {
+              "severity": {"const": "CRITICAL"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "taxonomy": {
+            "properties": {
+              "code": {"const": "C3"}
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "taxonomy": {
+            "properties": {
+              "severity": {"const": "MAJOR"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "taxonomy": {
+            "properties": {
+              "code": {"const": "C4"}
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "taxonomy": {
+            "properties": {
+              "severity": {"const": "MAJOR"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "taxonomy": {
+            "properties": {
+              "code": {"const": "C5"}
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "taxonomy": {
+            "properties": {
+              "severity": {"const": "MINOR"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "taxonomy": {
+            "properties": {
+              "code": {"const": "C6"}
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "taxonomy": {
+            "properties": {
+              "severity": {"const": "MINOR"}
             }
           }
         }

@@ -90,6 +90,10 @@ PYTHONPATH=src python -m orchestrator.orchestrator
   целочисленные поля `nodes`, `bt_depth`, `time_ms`, `limit_hit` вместе с таксономией кодов `C1…C6`.
 - В JSONL-логах shadow значения `time_ms_primary` и `time_ms_shadow` фиксируются как целые миллисекунды; проверка
   `tools/ci/doc_checks.py` гарантирует отсутствие дробных секунд и валидирует 64-символьные hex-дайджесты.
+- Overhead guard `tools/ci/shadow_overhead_guard.py` контролирует `p50/p95/p99` задержек и хранит baseline с TTL 14 дней,
+  а `tools/ci/soak_run.py` обеспечивает nightly soak (20 000 сидов, PCG64, ротация отчётов в `reports/soak/`).
+- Для валидации событий добавлен портативный чек `tools/ci/schema_check.py`, использующий `jsonschema` при наличии и
+  fallback-проверки (обязательные поля, типы, диапазоны) в остальных случаях.
 
 ## Contracts and artifacts
 

@@ -16,6 +16,7 @@ def test_shadow_event_reports_hex_digests() -> None:
     event = result["shadow"]["event"]
 
     assert HEX64.match(event["puzzle_digest"])
+    assert HEX64.match(event["solved_ref_digest"])
     assert HEX64.match(event["solve_trace_sha256"])
     assert HEX64.match(event["state_hash_sha256"])
     assert HEX64.match(event["envelope_jcs_sha256"])

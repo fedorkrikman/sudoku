@@ -47,9 +47,21 @@ def _iter_log_events(base: Path) -> Iterable[Mapping[str, object]]:
 
 
 def _check_log_integrity(base: Path) -> None:
-    hex_pattern = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
+    hex_pattern = re.compile(r"^[0-9a-f]{64}$")
+
+    def _walk(value: object, path: str) -> None:
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                _walk(item, f"{path}.{key}" if path else str(key))
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                _walk(item, f"{path}[{index}]")
+        elif isinstance(value, float):
+            raise ValueError(f"log field {path} must not be a float (got {value!r})")
+
     for event in _iter_log_events(base):
-        for key in ("time_ms_primary", "time_ms_shadow"):
+        _walk(event, "event")
+        for key in ("time_ms_primary", "time_ms_shadow", "time_ms", "nodes", "bt_depth"):
             if key in event:
                 value = event[key]
                 if not isinstance(value, int):
@@ -58,7 +70,7 @@ def _check_log_integrity(base: Path) -> None:
             if key in event:
                 value = event[key]
                 if not isinstance(value, str) or hex_pattern.fullmatch(value) is None:
-                    raise ValueError(f"log field {key} must be 40 or 64 hex characters")
+                    raise ValueError(f"log field {key} must be 64 hex characters")
 
 
 def main(argv: Iterable[str] | None = None) -> int:
