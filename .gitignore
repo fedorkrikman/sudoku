@@ -13,3 +13,4 @@ __pycache__/
 .env
 .pytest_cache/
 .mypy_cache/
+*.zip
