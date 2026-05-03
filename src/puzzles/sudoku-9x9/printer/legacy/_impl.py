@@ -7,6 +7,7 @@ import argparse
 import datetime as _dt
 import importlib.util
 import math
+import os
 import random
 import sys
 import time
@@ -137,8 +138,12 @@ def _import_module_from(path: Path, name: str):
 def _resolve_output_path(out: Optional[str]) -> Path:
     if out:
         return Path(out)
-    timestamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     return Path(f"{OUTPUT_PREFIX}_{timestamp}.pdf")
+
+
+def _default_seed() -> int:
+    return time.time_ns() ^ (os.getpid() << 16)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -154,7 +159,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--seed",
         type=int,
         default=None,
-        help="Base seed for reproducibility. If not set, the current timestamp is used.",
+        help="Base seed for reproducibility. If not set, a high-resolution timestamp is used.",
     )
     parser.add_argument(
         "--target",
@@ -196,7 +201,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if puzzle_kind != "sudoku-9x9":
         raise SystemExit("Only 'sudoku-9x9' puzzle kind is supported by this script.")
 
-    base_seed = args.seed if args.seed is not None else int(time.time())
+    base_seed = args.seed if args.seed is not None else _default_seed()
     out_path = _resolve_output_path(args.out)
 
     gen_path = PUZZLE_ROOT / "generator" / "legacy" / "__init__.py"

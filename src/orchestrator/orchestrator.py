@@ -109,6 +109,13 @@ def _merge_env(overrides: Mapping[str, str] | None = None) -> Dict[str, str]:
     return env
 
 
+def _resolve_root_seed(env_map: Mapping[str, str]) -> str:
+    explicit = str(env_map.get("PUZZLE_ROOT_SEED", "")).strip()
+    if explicit:
+        return explicit
+    return f"auto-{uuid.uuid4().hex}"
+
+
 def _coerce_bool(value: str | bool | None) -> Optional[bool]:
     if isinstance(value, bool):
         return value
@@ -226,7 +233,7 @@ def run_pipeline(
 
     env_map = _merge_env(env_overrides)
 
-    root_seed = env_map.get("PUZZLE_ROOT_SEED", "default-root-seed")
+    root_seed = _resolve_root_seed(env_map)
     run_id = f"run-{uuid.uuid5(uuid.NAMESPACE_URL, root_seed).hex[:12]}"
     current_profile = env_map.get("PUZZLE_VALIDATION_PROFILE", "dev")
 

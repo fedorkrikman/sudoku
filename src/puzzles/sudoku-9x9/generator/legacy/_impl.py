@@ -79,6 +79,24 @@ DEFAULT_TECH_WEIGHTS = {
 TECH_WEIGHTS = DEFAULT_TECH_WEIGHTS.copy()
 TECH_WEIGHTS.update(SCORING_CONFIG.get("weights", {}))
 
+
+def _seeded_rng(seed_material: str) -> random.Random:
+    digest = hashlib.sha256(seed_material.encode("utf-8")).digest()
+    return random.Random(int.from_bytes(digest, "big"))
+
+
+def _build_shuffled_indices(group_size: int, size: int, rng: random.Random) -> List[int]:
+    group_count = size // group_size
+    groups = list(range(group_count))
+    rng.shuffle(groups)
+
+    indices: List[int] = []
+    for group in groups:
+        members = list(range(group * group_size, (group + 1) * group_size))
+        rng.shuffle(members)
+        indices.extend(members)
+    return indices
+
 ADVANCED_DEFAULT = {
     "Naked Pairs",
     "Hidden Pairs",
@@ -640,15 +658,22 @@ def port_generate_complete(spec: Dict[str, Any], *, seed: str) -> Dict[str, Any]
         raise ValueError("alphabet must provide exactly size non-empty strings")
 
     seed_material = f"{seed}|{spec.get('artifact_id', '')}|{spec.get('name', '')}"
-    offset = int(hashlib.sha256(seed_material.encode('utf-8')).hexdigest(), 16) % size
-    rotated_alphabet = alphabet[offset:] + alphabet[:offset]
+    rng = _seeded_rng(seed_material)
+    row_order = _build_shuffled_indices(rows, size, rng)
+    col_order = _build_shuffled_indices(cols, size, rng)
+    shuffled_alphabet = list(alphabet)
+    rng.shuffle(shuffled_alphabet)
 
     def pattern(r: int, c: int) -> int:
         return (r * cols + r // rows + c) % size
 
-    grid_chars = [rotated_alphabet[pattern(r, c)] for r in range(size) for c in range(size)]
-    grid = ''.join(grid_chars)
-    digest = hashlib.sha256(grid.encode('utf-8')).hexdigest()
+    grid_chars = [
+        shuffled_alphabet[pattern(row_order[r], col_order[c])]
+        for r in range(size)
+        for c in range(size)
+    ]
+    grid = "".join(grid_chars)
+    digest = hashlib.sha256(grid.encode("utf-8")).hexdigest()
     return {
         "encoding": {"kind": "row-major-string", "alphabet": "as-in-spec"},
         "grid": grid,
